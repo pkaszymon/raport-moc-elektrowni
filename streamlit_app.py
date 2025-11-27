@@ -38,42 +38,74 @@ logger = logging.getLogger(__name__)
 
 def main():
     st.set_page_config(
-        page_title="PSE Generator Data Exporter",
+        page_title="Dane generatorów PSE",
         page_icon="⚡",
         layout="wide",
         initial_sidebar_state="expanded"
     )
     
-    st.title("⚡ PSE Generator Unit Data Exporter")
+    st.title("⚡ Pobieranie danych z PSE")
     st.markdown(
         """
-        Fetch time-series generator unit data from the Polish Power System Operator (PSE) API
-        and export to Excel. Supports efficient pagination with real-time progress tracking.
+        Aplikacja do pobierania danych o mocy elektrowni z systemu PSE i zapisywania ich do pliku Excel.
         """
     )
     
     # ========================================================================
-    # SIDEBAR: Query Configuration
+    # Query Configuration
     # ========================================================================
     
-    with st.sidebar:
-        st.header("📋 Query Configuration")
+    st.header("📋 Wybierz dane do pobrania")
+    
+    # Date range selection
+    col1, col2 = st.columns(2)
+    with col1:
+        start_date = st.date_input(
+            "Data początkowa",
+            value=date.today() - timedelta(days=7),
+            help="Od której daty pobrać dane"
+        )
+    with col2:
+        end_date = st.date_input(
+            "Data końcowa",
+            value=date.today(),
+            help="Do której daty pobrać dane"
+        )
+    
+    # Filter selection - mutually exclusive
+    st.subheader("🔍 Filtrowanie danych")
+    
+    filter_type = st.radio(
+        "Wybierz sposób filtrowania",
+        options=["Wszystkie dane", "Według elektrowni", "Według kodów jednostek"],
+        index=0,
+        horizontal=True,
+        help="Wybierz sposób filtrowania danych - możesz pobrać wszystko, wybrać konkretne elektrownie lub jednostki wytwórcze"
+    )
+    
+    selected_power_plants = []
+    selected_resources = []
+    
+    if filter_type == "Według elektrowni":
+        # Power plant filter
+        power_plants = [
+            "Siersza", "Rybnik", "EC Włocławek", "Porąbka Żar", "EC Stalowa Wola", 
+            "Kozienice 1", "Zielona Góra", "Gryfino", "Chorzów", "Łagisza", 
+            "Dolna Odra", "Pątnów 2", "EC Żerań 2", "Połaniec 2-Pasywna", "Turów", 
+            "Karolin 2", "EC Wrotków", "Jaworzno 3", "Jaworzno 2 JWCD", "Ostrołęka B", 
+            "EC Rzeszów", "Połaniec", "EC Siekierki", "EC Łódź-4", "Płock", 
+            "Skawina", "Żarnowiec", "Łaziska 3", "Opole", "EC Czechnica-2", 
+            "Katowice", "Wrocław", "Kraków Łęg", "Bełchatów", "Kozienice 2"
+        ]
         
-        # Date range selection
-        col1, col2 = st.columns(2)
-        with col1:
-            start_date = st.date_input(
-                "Start Date",
-                value=date.today() - timedelta(days=7),
-                help="Date range start (inclusive)"
-            )
-        with col2:
-            end_date = st.date_input(
-                "End Date",
-                value=date.today(),
-                help="Date range end (inclusive)"
-            )
-        
+        selected_power_plants = st.multiselect(
+            "Elektrownie",
+            options=sorted(power_plants),
+            default=[],
+            help="Wybierz elektrownie, dla których chcesz pobrać dane"
+        )
+    
+    elif filter_type == "Według kodów jednostek":
         # Resource code filter
         resource_codes = [
             "BEL 2-02", "BEL 2-03", "BEL 2-04", "BEL 2-05", "BEL 4-06", "BEL 4-07", "BEL 4-08", "BEL 4-09",
@@ -93,50 +125,62 @@ def main():
         ]
         
         selected_resources = st.multiselect(
-            "Resource Codes",
+            "Kody jednostek wytwórczych",
             options=resource_codes,
             default=[],
-            help="Select one or more resource codes to filter (leave empty for all resources)"
+            help="Wybierz konkretne jednostki wytwórcze"
         )
+    
+    # Validate date range
+    if start_date > end_date:
+        st.error("Data początkowa musi być wcześniejsza niż data końcowa")
+        return
+    
+    st.divider()
+    
+    # ========================================================================
+    # SIDEBAR: Advanced Options and Session Management
+    # ========================================================================
+    
+    with st.sidebar:
+        st.header("⚙️ Ustawienia zaawansowane")
         
-        # Validate date range
-        if start_date > end_date:
-            st.error("Start date must be before end date")
-            return
+        
         
         # Page size configuration
         page_size = st.slider(
-            "Records per Page",
+            "Rozmiar porcji danych",
             min_value=1000,
             max_value=100000,
             value=100000,
             step=10000,
-            help="Higher values = fewer requests but higher memory usage"
+            help="Ile rekordów pobrać za jednym razem. Maksimum to 100 000 - limit API PSE."
         )
         
-        # Advanced options
-        with st.expander("⚙️ Advanced Options"):
-            st.info(
-                "**OData Filter Format:**\n"
-                "businessdate ge YYYY-MM-DD and businessdate le YYYY-MM-DD\n\n"
-                "**Sort Order (OrderBy):**\n"
-                "businessdate asc,resourcecode asc,operatingmode asc,dtime_utc asc"
-            )
-            
-            enable_cache = st.checkbox(
-                "Enable Caching",
-                value=True,
-                help="Cache results to avoid refetching the same data"
-            )
+        st.info(
+            "ℹ️ **Dlaczego pobieramy dane partiami?** \n\n"
+            "API PSE nie pozwala pobrać wszystkich danych naraz. "
+            "Maksymalnie można pobrać 100 000 rekordów na raz. "
+            "Dla większych okresów dane są pobierane w kilku \"porcjach\", "
+            "co pozwala na pobranie nawet bardzo dużych zbiorów danych. "
+            "Mniejsze porcje pozwalają śledzić postęp pobierania danych na bieżąco. 😊"
+        )
+        
+        enable_cache = st.checkbox(
+            "Zapamiętaj pobrane dane",
+            value=True,
+            help="Zapobiega ponownemu pobieraniu tych samych danych. UWAGA: Wyłącz tę opcję, jeśli chcesz zawsze ponownie pobierać dane z PSE."
+        )
+        
         
         # Reset button
-        if st.button("🔄 Clear Session Data", width='stretch'):
+        if st.button("🔄 Wyczyść pobrane dane", use_container_width=True):
             for key in ["all_data", "current_page", "next_link", "min_dtime", "max_dtime", "query_params"]:
                 if key in st.session_state:
                     del st.session_state[key]
-            st.success("Session data cleared")
+            st.success("Dane zostały wyczyszczone")
             st.rerun()
-    
+
     # ========================================================================
     # Initialize Session State
     # ========================================================================
@@ -163,16 +207,16 @@ def main():
     
     with col1:
         st.metric(
-            "📊 Total Records",
+            "📊 Liczba rekordów",
             f"{len(st.session_state.all_data):,}",
-            help="Total records fetched across all pages"
+            help="Ile rekordów zostało pobranych"
         )
     
     with col2:
         st.metric(
-            "📄 Current Page",
+            "📄 Pobrano w częściach",
             st.session_state.current_page,
-            help="Number of API requests completed"
+            help="Ilość części na jakie dane zostały podzielone w celu ułatwienia pobierania"
         )
     
     with col3:
@@ -180,19 +224,19 @@ def main():
             min_dt = datetime.strptime(st.session_state.min_dtime, "%Y-%m-%d %H:%M:%S")
             days_back = (date.today() - min_dt.date()).days
             st.metric(
-                "📅 Earliest Record",
+                "📅 Najwcześniejszy rekord",
                 st.session_state.min_dtime.split()[0],
-                f"{days_back} days ago" if days_back >= 0 else "future"
+                f"{days_back} dni temu" if days_back >= 0 else "przyszłość"
             )
         else:
-            st.metric("📅 Earliest Record", "—", "No data yet")
+            st.metric("📅 Najwcześniejszy rekord", "—", "Brak danych")
     
     with col4:
         expected_intervals = calculate_expected_intervals(start_date, end_date)
         st.metric(
-            "⏱️ Expected Intervals",
+            "⏱️ Oczekiwane pomiary",
             f"{expected_intervals:,}",
-            "15-min intervals in range"
+            "pomiary co 15 min"
         )
     
     # Progress tracking
@@ -201,8 +245,8 @@ def main():
 
     # Query info
     st.info(
-        f"**Query Period:** {start_date.isoformat()} → {end_date.isoformat()} "
-        f"({(end_date - start_date).days + 1} days)"
+        f"**Wybrany okres:** {start_date.isoformat()} → {end_date.isoformat()} "
+        f"({(end_date - start_date).days + 1} dni)"
     )
 
     # ========================================================================
@@ -213,8 +257,9 @@ def main():
 
     with col_fetch:
         # Check if query parameters have changed
-        selected_resources_str = ",".join(sorted(selected_resources)) if selected_resources else "all"
-        current_query = f"{start_date.isoformat()}_{end_date.isoformat()}_{page_size}_{selected_resources_str}"
+        selected_resources_str = ",".join(sorted(selected_resources)) if selected_resources else ""
+        selected_power_plants_str = ",".join(sorted(selected_power_plants)) if selected_power_plants else ""
+        current_query = f"{start_date.isoformat()}_{end_date.isoformat()}_{page_size}_{filter_type}_{selected_resources_str}_{selected_power_plants_str}"
         if st.session_state.query_params != current_query:
             # Reset if query changed
             st.session_state.all_data = []
@@ -227,7 +272,7 @@ def main():
         has_more_pages = st.session_state.current_page == 0 or st.session_state.next_link is not None
         
         if st.button(
-            "📥 Fetch All Pages",
+            "📥 Pobierz dane",
             width='stretch',
             type="primary"
         ):
@@ -241,7 +286,7 @@ def main():
                 # Determine if this is the first request
                 is_first_request = st.session_state.current_page == 0
                 
-                status_placeholder.info(f"⏳ Fetching page {st.session_state.current_page + 1}...")
+                status_placeholder.info(f"⏳ Pobieram dane, część {st.session_state.current_page + 1}...")
                 
                 if is_first_request:
                     # Build initial query parameters
@@ -250,8 +295,17 @@ def main():
                         f"business_date le '{end_date.isoformat()}'"
                     )
                     
+                    # Add power plant filter if specific power plants are selected
+                    if selected_power_plants:
+                        if len(selected_power_plants) == 1:
+                            filter_param += f" and power_plant eq '{selected_power_plants[0]}'"
+                        else:
+                            # Build an 'or' condition for multiple power plants
+                            plant_conditions = " or ".join([f"power_plant eq '{plant}'" for plant in selected_power_plants])
+                            filter_param += f" and ({plant_conditions})"
+                    
                     # Add resource code filter if specific resources are selected
-                    if selected_resources:
+                    elif selected_resources:
                         if len(selected_resources) == 1:
                             filter_param += f" and resource_code eq '{selected_resources[0]}'"
                         else:
@@ -341,10 +395,10 @@ def main():
                         if latest_dt_obj.date() >= end_date:
                             logger.info(f"Latest dtime {latest_dt_obj.date()} is greater than or equal to end date {end_date}")
                             progress_bar.progress(1.0)
-                            status_placeholder.success(f"✓ Reached end date! {len(st.session_state.all_data):,} total records")
+                            status_placeholder.success(f"✓ Pobrano wszystkie dane! Łącznie {len(st.session_state.all_data):,} rekordów")
                             continue_fetching = False
                 else:
-                    status_placeholder.error("❌ Failed to fetch data from API")
+                    status_placeholder.error("❌ Nie udało się pobrać danych")
                     continue_fetching = False
             
             st.rerun()
@@ -352,11 +406,10 @@ def main():
     with col_info:
         if st.session_state.all_data:
             st.success(
-                f"**Ready to export:** {len(st.session_state.all_data):,} records "
-                f"across {st.session_state.current_page} page(s)"
+                f"**Gotowe do zapisu:** {len(st.session_state.all_data):,} rekordów"
             )
         else:
-            st.info("**Status:** No data loaded yet")
+            st.info("**Status:** Brak danych")
     
     # ========================================================================
     # Data Preview & Statistics
@@ -365,10 +418,12 @@ def main():
     if st.session_state.all_data:
         st.divider()
         
+
+
         col_preview, col_stats = st.columns([3, 1])
         
         with col_preview:
-            st.subheader("📋 Data Preview (Latest 100 records)")
+            st.subheader("📋 Podgląd danych (ostatnie 100 rekordów)")
             
             df = pl.DataFrame(st.session_state.all_data)
             df = df.sort("dtime", descending=True)
@@ -380,37 +435,37 @@ def main():
             )
         
         with col_stats:
-            st.subheader("📈 Statistics")
-            
+            st.subheader("📈 Statystyki")
+
             # Basic statistics
             col_stat1, col_stat2 = st.columns(2)
             
             with col_stat1:
                 st.metric(
-                    "Power Plants",
+                    "Elektrownie",
                     df.select(pl.col("power_plant").n_unique()).item()
                 )
                 st.metric(
-                    "Resources",
+                    "Jednostki",
                     df.select(pl.col("resource_code").n_unique()).item()
                 )
             
             with col_stat2:
                 st.metric(
-                    "Operating Modes",
+                    "Tryby pracy",
                     df.select(pl.col("operating_mode").n_unique()).item()
                 )
                 st.metric(
-                    "DataFrame Size",
+                    "Rozmiar danych",
                     f"{df.estimated_size('mb'):.1f} MB"
                 )
             
             # Time span
             st.divider()
-            st.write("**Time Coverage:**")
+            st.write("**Zakres czasowy:**")
             if st.session_state.min_dtime and st.session_state.max_dtime:
-                st.caption(f"From: {st.session_state.min_dtime}")
-                st.caption(f"To: {st.session_state.max_dtime}")
+                st.caption(f"Od: {st.session_state.min_dtime}")
+                st.caption(f"Do: {st.session_state.max_dtime}")
                 
                 time_span = datetime.strptime(
                     st.session_state.max_dtime,
@@ -419,129 +474,135 @@ def main():
                     st.session_state.min_dtime,
                     "%Y-%m-%d %H:%M:%S"
                 )
-                st.caption(f"Span: {time_span.days}d {time_span.seconds // 3600}h")
+                st.caption(f"Okres: {time_span.days}d {time_span.seconds // 3600}h")
         
         # ========================================================================
         # Data Aggregation by Power Plant
         # ========================================================================
         
         st.divider()
-        st.subheader("🏭 Data Aggregation by Power Plant")
+        st.subheader("🏭 Zestawienie danych według elektrowni")
         
         # Get unique power plants
         unique_power_plants = df.select(pl.col("power_plant").unique()).to_series().to_list()
         unique_power_plants = sorted([pp for pp in unique_power_plants if pp is not None])
         
-        st.info(f"Found **{len(unique_power_plants)}** unique power plants")
+        st.info(f"Znaleziono **{len(unique_power_plants)}** elektrowni")
         
-        with st.spinner("Creating pivot tables for each power plant..."):
+        with st.spinner("Przygotowuję tabele dla każdej elektrowni..."):
             power_plant_pivot_tables = {}
-            
-            for power_plant in unique_power_plants:
-                # Filter data for this power plant
-                plant_df = df.filter(pl.col("power_plant") == power_plant)
-                
-                # Extract date and period from dtime
-                # Assuming dtime format is "YYYY-MM-DD HH:MM:SS"
-                plant_df = plant_df.with_columns([
-                    pl.col("dtime").str.slice(0, 10).alias("date"),
-                    (pl.col("dtime").str.slice(11, 2).str.zfill(2) + ":00 - " + 
-                     ((pl.col("dtime").str.slice(11, 2).cast(pl.Int32) + 1) % 24)
-                     .cast(pl.Utf8).str.zfill(2) + ":00").alias("hour")  # Format as "HH:00 - HH:00"
-                ])
-                
-                # Get unique resource codes for this power plant
-                resource_codes = plant_df.select(pl.col("resource_code").unique()).to_series().to_list()
-                resource_codes = sorted([rc for rc in resource_codes if rc is not None])
-                
-                # Create pivot table: aggregate by date and hour, with resource_codes as columns
-                # We'll use the 'wartosc' or other value field as the aggregated value
-                # First, let's check which value column exists
-                available_cols = plant_df.columns
-                value_col = None
-                for possible_col in ["wartosc", "mw", "value", "capacity_mw", "generation_mw", "capacity"]:
-                    if possible_col in available_cols:
-                        value_col = possible_col
-                        break
-                
-                if value_col:
-                    # Pivot: rows are (date, hour), columns are resource_codes
-                    # Use mean to aggregate the 4 fifteen-minute intervals into 1 hour
-                    pivot_df = plant_df.pivot(
-                        values=value_col,
-                        index=["date", "hour"],
-                        columns="resource_code",
-                        aggregate_function="mean"  # Calculate arithmetic mean for hourly aggregation
-                    )
-                    
-                    # Sort by date and hour
-                    pivot_df = pivot_df.sort(["date", "hour"])
-                    
-                    power_plant_pivot_tables[power_plant] = pivot_df
-                else:
-                    st.warning(f"No suitable value column found for {power_plant}. Available columns: {available_cols}")
-            
-            # Store in session state
-            st.session_state.power_plant_pivot_tables = power_plant_pivot_tables
-            
-            st.success(f"✓ Created pivot tables for {len(power_plant_pivot_tables)} power plants")
         
-            # Display pivot tables
-            if power_plant_pivot_tables:
-                selected_plant = st.selectbox(
-                    "Select power plant to preview pivot table",
-                    options=list(power_plant_pivot_tables.keys()),
-                    help="Choose a power plant to view its pivoted data"
+        for power_plant in unique_power_plants:
+            # Filter data for this power plant
+            plant_df = df.filter(pl.col("power_plant") == power_plant)
+            
+            # Extract date and period from dtime
+            # Assuming dtime format is "YYYY-MM-DD HH:MM:SS"
+            plant_df = plant_df.with_columns([
+                pl.col("dtime").str.slice(0, 10).alias("date"),
+                (pl.col("dtime").str.slice(11, 2).str.zfill(2) + ":00 - " + 
+                    ((pl.col("dtime").str.slice(11, 2).cast(pl.Int32) + 1) % 24)
+                    .cast(pl.Utf8).str.zfill(2) + ":00").alias("hour")  # Format as "HH:00 - HH:00"
+            ])
+            
+            # Get unique resource codes for this power plant
+            resource_codes = plant_df.select(pl.col("resource_code").unique()).to_series().to_list()
+            resource_codes = sorted([rc for rc in resource_codes if rc is not None])
+            
+            # Create pivot table: aggregate by date and hour, with resource_codes as columns
+            # We'll use the 'wartosc' or other value field as the aggregated value
+            # First, let's check which value column exists
+            available_cols = plant_df.columns
+            value_col = None
+            for possible_col in ["wartosc", "mw", "value", "capacity_mw", "generation_mw", "capacity"]:
+                if possible_col in available_cols:
+                    value_col = possible_col
+                    break
+            
+            if value_col:
+                # Pivot: rows are (date, hour), columns are resource_codes
+                # Use mean to aggregate the 4 fifteen-minute intervals into 1 hour
+                pivot_df = plant_df.pivot(
+                    values=value_col,
+                    index=["date", "hour"],
+                    columns="resource_code",
+                    aggregate_function="mean"  # Calculate arithmetic mean for hourly aggregation
                 )
                 
-                if selected_plant:
-                    pivot_df = power_plant_pivot_tables[selected_plant]
-                    
-                    col_plant_info, col_plant_stats = st.columns([2, 1])
-                    
-                    with col_plant_info:
-                        st.write(f"**Power Plant:** `{selected_plant}`")
-                        st.write(f"**Rows (date-hour combinations):** {len(pivot_df):,}")
-                    
-                    with col_plant_stats:
-                        # Number of resource code columns (excluding date and hour)
-                        resource_cols = [c for c in pivot_df.columns if c not in ["date", "hour"]]
-                        st.metric("Resource Columns", len(resource_cols))
-                        st.metric("Table Size", f"{pivot_df.estimated_size('mb'):.2f} MB")
-                    
-                    # Show preview
-                    st.write("**Preview (first 50 rows):**")
-                    st.caption("Data aggregated hourly using arithmetic mean of 15-minute intervals")
-                    st.dataframe(
-                        pivot_df.head(50),
-                        width='stretch',
-                        height=400
+                # Sort by date and hour
+                pivot_df = pivot_df.sort(["date", "hour"])
+                
+                power_plant_pivot_tables[power_plant] = pivot_df
+            else:
+                st.warning(f"No suitable value column found for {power_plant}. Available columns: {available_cols}")
+        
+        # Store in session state
+        st.session_state.power_plant_pivot_tables = power_plant_pivot_tables
+        
+        st.success(f"✓ Utworzono tabele dla {len(power_plant_pivot_tables)} elektrowni")
+    
+        # Display pivot tables
+        if power_plant_pivot_tables:
+            selected_plant = st.selectbox(
+                "Wybierz elektrownię do podglądu",
+                options=list(power_plant_pivot_tables.keys()),
+                help="Wybierz elektrownię, aby zobaczyć jej dane"
+            )
+            
+            if selected_plant:
+                pivot_df = power_plant_pivot_tables[selected_plant]
+                
+                col_plant_info, col_plant_stats = st.columns([2, 1])
+                
+                with col_plant_info:
+                    st.write(f"**Elektrownia:** `{selected_plant}`")
+                    st.write(f"**Liczba wierszy (data-godzina):** {len(pivot_df):,}")
+                
+                with col_plant_stats:
+                    # Number of resource code columns (excluding date and hour)
+                    resource_cols = [c for c in pivot_df.columns if c not in ["date", "hour"]]
+                    st.metric("Kolumn z danymi", len(resource_cols))
+                    st.metric("Rozmiar tabeli", f"{pivot_df.estimated_size('mb'):.2f} MB")
+                
+                # Show preview
+                st.write("**Podgląd (pierwsze 50 wierszy):**")
+                st.caption("Dane zagregowane godzinowo - średnia z pomiarów 15-minutowych")
+                st.dataframe(
+                    pivot_df.head(50),
+                    width='stretch',
+                    height=400
+                )
+                
+                # Export single power plant table
+                st.divider()
+                st.subheader("📥 Pobierz dane")
+                
+                col_export1, col_export2 = st.columns(2)
+                
+                with col_export1:
+                    selected_plant = st.selectbox(
+                        "Wybierz elektrownię do pobrania",
+                        options=list(power_plant_pivot_tables.keys()),
+                        help="Wybierz elektrownię, aby pobrać jej dane jako Excel"
                     )
+                    # Export single table as Excel
+                    output = io.BytesIO()
+                    pivot_df.write_excel(output)
+                    output.seek(0)
                     
-                    # Export single power plant table
-                    st.divider()
-                    st.subheader("📥 Export Data")
-                    
-                    col_export1, col_export2 = st.columns(2)
-                    
-                    with col_export1:
-                        # Export single table as Excel
-                        output = io.BytesIO()
-                        pivot_df.write_excel(output)
-                        output.seek(0)
-                        
-                        st.download_button(
-                            label=f"💾 Download {selected_plant} Table (Excel)",
-                            data=output,
-                            file_name=f"{selected_plant}_aggregated.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            help="Download this power plant's aggregated data as Excel"
-                        )
-                    
-                    with col_export2:
-                        # Export all tables as single Excel with multiple sheets
-                        if st.button("📦 Prepare All Tables for Export", help="Create Excel file with all power plants as separate sheets"):
-                            with st.spinner("Creating Excel file with all power plants..."):
+                    st.download_button(
+                        label=f"💾 Pobierz {selected_plant} (Excel)",
+                        data=output,
+                        file_name=f"{selected_plant}_dane.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        help="Pobierz dane tej elektrowni jako plik Excel"
+                    )
+                
+                with col_export2:
+                    # Export all tables as single Excel with multiple sheets
+                    if len(power_plant_pivot_tables.keys()) > 1:
+                        if st.button("📦 Przygotuj wszystkie elektrownie do pobrania (Excel)", help="Utwórz plik Excel ze wszystkimi elektrowniami na osobnych arkuszach"):
+                            with st.spinner("Tworzę plik Excel ze wszystkimi elektrowniami..."):
                                 # Use xlsxwriter to create multi-sheet Excel file
                                 import xlsxwriter
                                 import numpy as np
@@ -578,20 +639,15 @@ def main():
                                 workbook.close()
                                 output_all.seek(0)
                                 st.session_state.excel_export = output_all.getvalue()
-                                st.success(f"✓ Excel file ready with {len(power_plant_pivot_tables)} sheets")
-                    
-                    # Show download button if export is ready
-                    if "excel_export" in st.session_state:
-                        st.download_button(
-                            label=f"💾 Download All Power Plants (Excel)",
-                            data=st.session_state.excel_export,
-                            file_name=f"all_power_plants_aggregated_{start_date.isoformat()}_{end_date.isoformat()}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            help="Download all power plant tables in a single Excel file with multiple sheets"
-                        )
-
-
-
+                                st.success(f"✓ Plik Excel gotowy z {len(power_plant_pivot_tables)} arkuszami")
+                            if 'excel_export' in st.session_state:
+                                st.download_button(
+                                    label=f"💾 Pobierz wszystkie elektrownie (Excel)",
+                                    data=st.session_state.excel_export,
+                                    file_name=f"wszystkie_elektrownie_{start_date.isoformat()}_{end_date.isoformat()}.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    help="Pobierz dane wszystkich elektrowni w jednym pliku Excel z wieloma arkuszami"
+                                )
 
 if __name__ == "__main__":
     main()
