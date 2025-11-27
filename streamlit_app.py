@@ -434,44 +434,161 @@ def main():
         
         st.info(f"Found **{len(unique_power_plants)}** unique power plants")
         
-        # Create separate tables for each power plant
-        if st.checkbox("Show aggregated tables by power plant", value=False):
-            power_plant_tables = {}
+        with st.spinner("Creating pivot tables for each power plant..."):
+            power_plant_pivot_tables = {}
             
             for power_plant in unique_power_plants:
                 # Filter data for this power plant
                 plant_df = df.filter(pl.col("power_plant") == power_plant)
-                power_plant_tables[power_plant] = plant_df
+                
+                # Extract date and period from dtime
+                # Assuming dtime format is "YYYY-MM-DD HH:MM:SS"
+                plant_df = plant_df.with_columns([
+                    pl.col("dtime").str.slice(0, 10).alias("date"),
+                    (pl.col("dtime").str.slice(11, 2).str.zfill(2) + ":00 - " + 
+                     ((pl.col("dtime").str.slice(11, 2).cast(pl.Int32) + 1) % 24)
+                     .cast(pl.Utf8).str.zfill(2) + ":00").alias("hour")  # Format as "HH:00 - HH:00"
+                ])
+                
+                # Get unique resource codes for this power plant
+                resource_codes = plant_df.select(pl.col("resource_code").unique()).to_series().to_list()
+                resource_codes = sorted([rc for rc in resource_codes if rc is not None])
+                
+                # Create pivot table: aggregate by date and hour, with resource_codes as columns
+                # We'll use the 'wartosc' or other value field as the aggregated value
+                # First, let's check which value column exists
+                available_cols = plant_df.columns
+                value_col = None
+                for possible_col in ["wartosc", "mw", "value", "capacity_mw", "generation_mw", "capacity"]:
+                    if possible_col in available_cols:
+                        value_col = possible_col
+                        break
+                
+                if value_col:
+                    # Pivot: rows are (date, hour), columns are resource_codes
+                    # Use mean to aggregate the 4 fifteen-minute intervals into 1 hour
+                    pivot_df = plant_df.pivot(
+                        values=value_col,
+                        index=["date", "hour"],
+                        columns="resource_code",
+                        aggregate_function="mean"  # Calculate arithmetic mean for hourly aggregation
+                    )
+                    
+                    # Sort by date and hour
+                    pivot_df = pivot_df.sort(["date", "hour"])
+                    
+                    power_plant_pivot_tables[power_plant] = pivot_df
+                else:
+                    st.warning(f"No suitable value column found for {power_plant}. Available columns: {available_cols}")
             
-            # Display tables
-            selected_plant = st.selectbox(
-                "Select power plant to preview",
-                options=unique_power_plants,
-                help="Choose a power plant to view its data"
-            )
+            # Store in session state
+            st.session_state.power_plant_pivot_tables = power_plant_pivot_tables
             
-            if selected_plant:
-                plant_df = power_plant_tables[selected_plant]
-                
-                col_plant_info, col_plant_stats = st.columns([2, 1])
-                
-                with col_plant_info:
-                    st.write(f"**Power Plant:** `{selected_plant}`")
-                    st.write(f"**Records:** {len(plant_df):,}")
-                
-                with col_plant_stats:
-                    st.metric("Resources", plant_df.select(pl.col("resource_code").n_unique()).item())
-                    st.metric("Size", f"{plant_df.estimated_size('mb'):.2f} MB")
-                
-                # Show preview
-                st.dataframe(
-                    plant_df.sort("dtime", descending=True).head(50),
-                    width='stretch',
-                    height=300
+            st.success(f"✓ Created pivot tables for {len(power_plant_pivot_tables)} power plants")
+        
+            # Display pivot tables
+            if power_plant_pivot_tables:
+                selected_plant = st.selectbox(
+                    "Select power plant to preview pivot table",
+                    options=list(power_plant_pivot_tables.keys()),
+                    help="Choose a power plant to view its pivoted data"
                 )
                 
-                # Store aggregated tables in session state for later use
-                st.session_state.power_plant_tables = power_plant_tables
+                if selected_plant:
+                    pivot_df = power_plant_pivot_tables[selected_plant]
+                    
+                    col_plant_info, col_plant_stats = st.columns([2, 1])
+                    
+                    with col_plant_info:
+                        st.write(f"**Power Plant:** `{selected_plant}`")
+                        st.write(f"**Rows (date-hour combinations):** {len(pivot_df):,}")
+                    
+                    with col_plant_stats:
+                        # Number of resource code columns (excluding date and hour)
+                        resource_cols = [c for c in pivot_df.columns if c not in ["date", "hour"]]
+                        st.metric("Resource Columns", len(resource_cols))
+                        st.metric("Table Size", f"{pivot_df.estimated_size('mb'):.2f} MB")
+                    
+                    # Show preview
+                    st.write("**Preview (first 50 rows):**")
+                    st.caption("Data aggregated hourly using arithmetic mean of 15-minute intervals")
+                    st.dataframe(
+                        pivot_df.head(50),
+                        width='stretch',
+                        height=400
+                    )
+                    
+                    # Export single power plant table
+                    st.divider()
+                    st.subheader("📥 Export Data")
+                    
+                    col_export1, col_export2 = st.columns(2)
+                    
+                    with col_export1:
+                        # Export single table as Excel
+                        output = io.BytesIO()
+                        pivot_df.write_excel(output)
+                        output.seek(0)
+                        
+                        st.download_button(
+                            label=f"💾 Download {selected_plant} Table (Excel)",
+                            data=output,
+                            file_name=f"{selected_plant}_aggregated.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            help="Download this power plant's aggregated data as Excel"
+                        )
+                    
+                    with col_export2:
+                        # Export all tables as single Excel with multiple sheets
+                        if st.button("📦 Prepare All Tables for Export", help="Create Excel file with all power plants as separate sheets"):
+                            with st.spinner("Creating Excel file with all power plants..."):
+                                # Use xlsxwriter to create multi-sheet Excel file
+                                import xlsxwriter
+                                import numpy as np
+                                
+                                output_all = io.BytesIO()
+                                workbook = xlsxwriter.Workbook(output_all, {'in_memory': True, 'nan_inf_to_errors': True})
+                                
+                                for plant_name, plant_pivot_df in power_plant_pivot_tables.items():
+                                    # Sanitize sheet name (Excel has 31 char limit and some char restrictions)
+                                    sheet_name = plant_name[:31].replace("/", "_").replace("\\", "_").replace(":", "_").replace("*", "_").replace("?", "_").replace("[", "_").replace("]", "_")
+                                    
+                                    # Convert to pandas for xlsxwriter compatibility
+                                    pandas_df = plant_pivot_df.to_pandas()
+                                    
+                                    # Write to worksheet
+                                    worksheet = workbook.add_worksheet(sheet_name)
+                                    
+                                    # Write headers
+                                    for col_num, col_name in enumerate(pandas_df.columns):
+                                        worksheet.write(0, col_num, col_name)
+                                    
+                                    # Write data, handling NaN/Inf values
+                                    for row_num, row_data in enumerate(pandas_df.values, start=1):
+                                        for col_num, value in enumerate(row_data):
+                                            # Handle NaN and Inf values
+                                            if isinstance(value, (float, np.floating)):
+                                                if np.isnan(value) or np.isinf(value):
+                                                    worksheet.write(row_num, col_num, None)  # Write empty cell
+                                                else:
+                                                    worksheet.write(row_num, col_num, value)
+                                            else:
+                                                worksheet.write(row_num, col_num, value)
+                                
+                                workbook.close()
+                                output_all.seek(0)
+                                st.session_state.excel_export = output_all.getvalue()
+                                st.success(f"✓ Excel file ready with {len(power_plant_pivot_tables)} sheets")
+                    
+                    # Show download button if export is ready
+                    if "excel_export" in st.session_state:
+                        st.download_button(
+                            label=f"💾 Download All Power Plants (Excel)",
+                            data=st.session_state.excel_export,
+                            file_name=f"all_power_plants_aggregated_{start_date.isoformat()}_{end_date.isoformat()}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            help="Download all power plant tables in a single Excel file with multiple sheets"
+                        )
 
 
 
