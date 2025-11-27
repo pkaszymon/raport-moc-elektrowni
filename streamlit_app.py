@@ -74,6 +74,31 @@ def main():
                 help="Date range end (inclusive)"
             )
         
+        # Resource code filter
+        resource_codes = [
+            "BEL 2-02", "BEL 2-03", "BEL 2-04", "BEL 2-05", "BEL 4-06", "BEL 4-07", "BEL 4-08", "BEL 4-09",
+            "BEL 4-10", "BEL 4-11", "BEL 4-12", "BEL 4-14", "CHZ21S01", "CHZ21S02", "CZN_1S01", "DOD 2-05",
+            "DOD 4-07", "DOD 4-08", "DOD_2-06", "EGF_4S09", "EGF_4S10", "JW2_4-07", "JW3 1-03", "JW3 2-01",
+            "JW3 2-02", "JW3 2-04", "JW3 2-05", "JW3 2-06", "KAR 1-03", "KAR_1-02", "KAT 1-01", "KLE 1-01",
+            "KLE 1-02", "KLE 1-03", "KLE 1-04", "KOZ11S02", "KOZ11S06", "KOZ12S01", "KOZ12S03", "KOZ12S04",
+            "KOZ12S05", "KOZ12S07", "KOZ12S08", "KOZ24S09", "KOZ24S10", "KOZ24S11", "LD4 1-03", "LEC 1-01",
+            "LGA 4-10", "LZA31-09", "LZA31-10", "LZA32-11", "LZA32-12", "OPL 1-01", "OPL 1-02", "OPL 4-03",
+            "OPL 4-04", "OPL 4-05", "OPL 4-06", "OSB_1S03", "OSB_2S01", "OSB_2S02", "PAT24S09", "PLO_4S01",
+            "POL24S09", "POL_2S02", "POL_2S03", "POL_2S04", "POL_4S05", "POL_4S06", "POL_4S07", "PZR 2-01",
+            "PZR 2-02", "PZR 2-03", "PZR 2-04", "REC 1-01", "RYB 2-05", "RYB 2-06", "RYB 4-07", "RYB 4-08",
+            "SIA 1-01", "SIA 1-02", "SNA11S03", "SNA22S05", "SNA22S06", "STW42S12", "TUR 1-01", "TUR 2-02",
+            "TUR 2-03", "TUR 2-04", "TUR 2-05", "TUR 2-06", "TUR 4-11", "WLC_2S01", "WROB1-02", "WROB1-03",
+            "WSIB1-07", "WSIB1-08", "WSIB1-09", "WSIB1-10", "WZE22S20", "ZGR22S01", "ZRN_4-01", "ZRN_4-02",
+            "ZRN_4-03", "ZRN_4-04"
+        ]
+        
+        selected_resources = st.multiselect(
+            "Resource Codes",
+            options=resource_codes,
+            default=[],
+            help="Select one or more resource codes to filter (leave empty for all resources)"
+        )
+        
         # Validate date range
         if start_date > end_date:
             st.error("Start date must be before end date")
@@ -184,11 +209,12 @@ def main():
     # Data Fetching Controls
     # ========================================================================
 
-    col_fetch, col_export, col_info = st.columns([2, 2, 3])
+    col_fetch, col_info = st.columns([2, 3])
 
     with col_fetch:
         # Check if query parameters have changed
-        current_query = f"{start_date.isoformat()}_{end_date.isoformat()}_{page_size}"
+        selected_resources_str = ",".join(sorted(selected_resources)) if selected_resources else "all"
+        current_query = f"{start_date.isoformat()}_{end_date.isoformat()}_{page_size}_{selected_resources_str}"
         if st.session_state.query_params != current_query:
             # Reset if query changed
             st.session_state.all_data = []
@@ -223,6 +249,16 @@ def main():
                         f"business_date ge '{start_date.isoformat()}' and "
                         f"business_date le '{end_date.isoformat()}'"
                     )
+                    
+                    # Add resource code filter if specific resources are selected
+                    if selected_resources:
+                        if len(selected_resources) == 1:
+                            filter_param += f" and resource_code eq '{selected_resources[0]}'"
+                        else:
+                            # Build an 'or' condition for multiple resources
+                            resource_conditions = " or ".join([f"resource_code eq '{code}'" for code in selected_resources])
+                            filter_param += f" and ({resource_conditions})"
+                    
                     orderby_param = "business_date asc,resource_code asc,operating_mode asc,dtime_utc asc"
                     params = {
                         "$filter": filter_param,
@@ -313,31 +349,6 @@ def main():
             
             st.rerun()
     
-    with col_export:
-        if st.session_state.all_data:
-            # Convert to Polars DataFrame for efficient export
-            df = pl.DataFrame(st.session_state.all_data)
-            
-            # Sort by dtime descending for better readability
-            df = df.sort("dtime", descending=True)
-            
-            # Create Excel file in memory
-            excel_buffer = io.BytesIO()
-            df.write_excel(excel_buffer)
-            excel_buffer.seek(0)
-            
-            file_name = f"pse_data_{start_date.isoformat()}_to_{end_date.isoformat()}.xlsx"
-            
-            st.download_button(
-                "📊 Download as Excel",
-                data=excel_buffer.getvalue(),
-                file_name=file_name,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                width='stretch'
-            )
-        else:
-            st.info("⬅️ Load data first to enable export")
-    
     with col_info:
         if st.session_state.all_data:
             st.success(
@@ -409,6 +420,60 @@ def main():
                     "%Y-%m-%d %H:%M:%S"
                 )
                 st.caption(f"Span: {time_span.days}d {time_span.seconds // 3600}h")
+        
+        # ========================================================================
+        # Data Aggregation by Power Plant
+        # ========================================================================
+        
+        st.divider()
+        st.subheader("🏭 Data Aggregation by Power Plant")
+        
+        # Get unique power plants
+        unique_power_plants = df.select(pl.col("power_plant").unique()).to_series().to_list()
+        unique_power_plants = sorted([pp for pp in unique_power_plants if pp is not None])
+        
+        st.info(f"Found **{len(unique_power_plants)}** unique power plants")
+        
+        # Create separate tables for each power plant
+        if st.checkbox("Show aggregated tables by power plant", value=False):
+            power_plant_tables = {}
+            
+            for power_plant in unique_power_plants:
+                # Filter data for this power plant
+                plant_df = df.filter(pl.col("power_plant") == power_plant)
+                power_plant_tables[power_plant] = plant_df
+            
+            # Display tables
+            selected_plant = st.selectbox(
+                "Select power plant to preview",
+                options=unique_power_plants,
+                help="Choose a power plant to view its data"
+            )
+            
+            if selected_plant:
+                plant_df = power_plant_tables[selected_plant]
+                
+                col_plant_info, col_plant_stats = st.columns([2, 1])
+                
+                with col_plant_info:
+                    st.write(f"**Power Plant:** `{selected_plant}`")
+                    st.write(f"**Records:** {len(plant_df):,}")
+                
+                with col_plant_stats:
+                    st.metric("Resources", plant_df.select(pl.col("resource_code").n_unique()).item())
+                    st.metric("Size", f"{plant_df.estimated_size('mb'):.2f} MB")
+                
+                # Show preview
+                st.dataframe(
+                    plant_df.sort("dtime", descending=True).head(50),
+                    width='stretch',
+                    height=300
+                )
+                
+                # Store aggregated tables in session state for later use
+                st.session_state.power_plant_tables = power_plant_tables
+
+
 
 
 if __name__ == "__main__":
