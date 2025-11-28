@@ -336,7 +336,7 @@ def main():
                 logger.info(f"Next link after fetch: {next_link}")
                 logger.info(f"Data keys: {data.keys() if data else 'No data'}")
                 logger.info(f"Logical value of data: {bool(data)}")
-                logger.info(f"Error occurred: {error_occurred}")
+                logger.debug(f"Error occurred: {error_occurred}")
 
                 if error_occurred:
                     # Request failed after all retries - show error and stop
