@@ -150,7 +150,7 @@ def fetch_all_pse_data(
             is_first_request=use_params
         )
         
-        if error_occurred or data is None:
+        if error_occurred:
             logger.error(f"Failed to fetch page {page_count}")
             break
         

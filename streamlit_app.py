@@ -24,7 +24,8 @@ from pse_api import (
     fetch_pse_page,
     calculate_time_coverage,
     calculate_expected_intervals,
-    PSE_API_BASE_URL
+    PSE_API_BASE_URL,
+    MAX_RETRIES
 )
 
 # Configure logging
@@ -340,8 +341,8 @@ def main():
                 if error_occurred:
                     # Request failed after all retries - show error and stop
                     status_placeholder.error(
-                        "❌ **Nie udało się pobrać danych**\n\n"
-                        "Żądanie nie powiodło się po 3 próbach. Możliwe przyczyny:\n"
+                        f"❌ **Nie udało się pobrać danych**\n\n"
+                        f"Żądanie nie powiodło się po {MAX_RETRIES} próbach. Możliwe przyczyny:\n"
                         "- Problem z połączeniem internetowym\n"
                         "- Serwer PSE nie odpowiada\n"
                         "- Przekroczono limit czasu połączenia\n\n"
