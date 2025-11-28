@@ -391,13 +391,13 @@ def main():
                     progress_bar.progress(progress_pct)
                     
                     status_placeholder.success(
-                        f"✅ Page {st.session_state.current_page}: {len(records):,} records | "
-                        f"Total: {len(st.session_state.all_data):,} | Coverage: {progress_pct*100:.1f}%"
+                        f"✅ Część {st.session_state.current_page}: {len(records):,} rekordów | "
+                        f"Łącznie: {len(st.session_state.all_data):,} | Pokrycie: {progress_pct*100:.1f}%"
                     )
                     
                     # Check if we should continue
                     if not next_link:
-                        status_placeholder.success(f"✓ Complete! Fetched {len(st.session_state.all_data):,} records across {st.session_state.current_page} pages")
+                        status_placeholder.success(f"✓ Ukończono! Pobrano {len(st.session_state.all_data):,} rekordów w {st.session_state.current_page} częściach")
                         continue_fetching = False
                     elif st.session_state.max_dtime:
                         logger.info(f"Checking if lastest dtime {st.session_state.max_dtime} reaches end date {end_date}")
@@ -552,7 +552,7 @@ def main():
                 
                 power_plant_pivot_tables[power_plant] = pivot_df
             else:
-                st.warning(f"No suitable value column found for {power_plant}. Available columns: {available_cols}")
+                st.warning(f"Nie znaleziono odpowiedniej kolumny z wartościami dla {power_plant}. Dostępne kolumny: {available_cols}")
         
         # Store in session state
         st.session_state.power_plant_pivot_tables = power_plant_pivot_tables
