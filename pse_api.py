@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 PSE_API_BASE_URL = "https://api.raporty.pse.pl/api/gen-jw"
-REQUEST_TIMEOUT = 30
+REQUEST_TIMEOUT = 60
 MAX_RETRIES = 3
 RETRY_BACKOFF_MULTIPLIER = 2
 MIN_RETRY_DELAY = 1  # seconds
