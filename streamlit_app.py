@@ -24,7 +24,8 @@ from pse_api import (
     fetch_pse_page,
     calculate_time_coverage,
     calculate_expected_intervals,
-    PSE_API_BASE_URL
+    PSE_API_BASE_URL,
+    MAX_RETRIES
 )
 
 # Configure logging
@@ -326,7 +327,7 @@ def main():
                     params = None
                 
                 # Fetch single page
-                data, next_link = fetch_pse_page(
+                data, next_link, error_occurred = fetch_pse_page(
                     url=url,
                     params=params,
                     is_first_request=is_first_request
@@ -335,8 +336,20 @@ def main():
                 logger.info(f"Next link after fetch: {next_link}")
                 logger.info(f"Data keys: {data.keys() if data else 'No data'}")
                 logger.info(f"Logical value of data: {bool(data)}")
+                logger.debug(f"Error occurred: {error_occurred}")
 
-                if data:
+                if error_occurred:
+                    # Request failed after all retries - show error and stop
+                    status_placeholder.error(
+                        f"❌ **Nie udało się pobrać danych**\n\n"
+                        f"Żądanie nie powiodło się po {MAX_RETRIES} próbach. Możliwe przyczyny:\n"
+                        "- Problem z połączeniem internetowym\n"
+                        "- Serwer PSE nie odpowiada\n"
+                        "- Przekroczono limit czasu połączenia\n\n"
+                        "💡 **Spróbuj ponownie:** Kliknij przycisk 'Pobierz dane' aby ponowić próbę."
+                    )
+                    continue_fetching = False
+                elif data:
                     records = data.get("value", [])
                     st.session_state.all_data.extend(records)
                     st.session_state.next_link = next_link
@@ -398,7 +411,12 @@ def main():
                             status_placeholder.success(f"✓ Pobrano wszystkie dane! Łącznie {len(st.session_state.all_data):,} rekordów")
                             continue_fetching = False
                 else:
-                    status_placeholder.error("❌ Nie udało się pobrać danych")
+                    # Unexpected case: data is None but no error occurred
+                    status_placeholder.error(
+                        "❌ **Nieoczekiwany błąd**\n\n"
+                        "Wystąpił nieoczekiwany problem podczas pobierania danych.\n\n"
+                        "💡 **Spróbuj ponownie:** Kliknij przycisk 'Pobierz dane' aby ponowić próbę."
+                    )
                     continue_fetching = False
             
             st.rerun()
