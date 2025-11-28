@@ -441,7 +441,7 @@ def main():
         col_preview, col_stats = st.columns([3, 1])
         
         with col_preview:
-            st.subheader("📋 Podgląd danych (ostatnie 100 rekordów)")
+            st.subheader("📋 Podgląd nieprzetworzonych danych (ostatnie 100 rekordów)")
             
             df = pl.DataFrame(st.session_state.all_data)
             df = df.sort("dtime", descending=True)
