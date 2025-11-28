@@ -25,6 +25,7 @@ MAX_RETRIES = 3
 RETRY_BACKOFF_MULTIPLIER = 2
 MIN_RETRY_DELAY = 1  # seconds
 DEFAULT_PAGE_SIZE = 100000  # Max records per request
+MAX_WARNING_LOGS = 5  # Max number of malformed datetime warnings to log
 
 
 # ============================================================================
@@ -199,12 +200,26 @@ def calculate_time_coverage(
     if not dtime_strings:
         return 0.0, None, None
     
+    # Parse datetime strings, skipping any malformed ones
+    dtime_objects = []
+    skipped_count = 0
+    
+    for dt in dtime_strings:
+        try:
+            dtime_objects.append(datetime.strptime(dt, "%Y-%m-%d %H:%M:%S"))
+        except (ValueError, TypeError) as e:
+            skipped_count += 1
+            if skipped_count <= MAX_WARNING_LOGS:  # Log first few errors only
+                logger.warning(f"Skipping malformed dtime value '{dt}': {e}")
+    
+    if skipped_count > MAX_WARNING_LOGS:
+        logger.warning(f"Skipped {skipped_count} total malformed dtime values")
+    
+    if not dtime_objects:
+        logger.error("No valid dtime values found after parsing")
+        return 0.0, None, None
+    
     try:
-        dtime_objects = [
-            datetime.strptime(dt, "%Y-%m-%d %H:%M:%S")
-            for dt in dtime_strings
-        ]
-        
         earliest = min(dtime_objects)
         latest = max(dtime_objects)
         
@@ -216,7 +231,7 @@ def calculate_time_coverage(
         return max(progress, 0.0), earliest, latest
         
     except (ValueError, TypeError) as e:
-        logger.error(f"Error parsing dtime values: {e}")
+        logger.error(f"Error calculating time coverage: {e}")
         return 0.0, None, None
 
 
