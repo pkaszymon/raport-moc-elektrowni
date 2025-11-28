@@ -5,7 +5,7 @@
 This is a Streamlit web application for fetching and exporting time-series power generation data from the Polish Power System Operator (PSE) API. The application provides an intuitive interface for downloading generator unit data and exporting it to Excel format with advanced filtering and aggregation capabilities.
 
 ### Technologies
-- **Python 3.9+**: Core programming language (note: README.md states 3.8+ but code uses Python 3.9+ type hints like `tuple[...]`)
+- **Python 3.13+**: Core programming language
 - **Streamlit 1.51.0+**: Web application framework
 - **Polars 1.35.2+**: Fast DataFrame library for data processing
 - **Requests 2.32.5+**: HTTP library for API calls
