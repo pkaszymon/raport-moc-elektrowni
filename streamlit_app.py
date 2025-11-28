@@ -25,7 +25,9 @@ from pse_api import (
     calculate_time_coverage,
     calculate_expected_intervals,
     PSE_API_BASE_URL,
-    MAX_RETRIES
+    MAX_RETRIES,
+    POWER_PLANT_TO_RESOURCES,
+    ALL_RESOURCE_CODES
 )
 
 # Configure logging
@@ -233,7 +235,13 @@ def main():
             st.metric("📅 Najwcześniejszy rekord", "—", "Brak danych")
     
     with col4:
-        expected_intervals = calculate_expected_intervals(start_date, end_date)
+        expected_intervals = calculate_expected_intervals(
+            start_date,
+            end_date,
+            filter_type,
+            selected_power_plants,
+            selected_resources
+        )
         st.metric(
             "⏱️ Oczekiwane pomiary",
             f"{expected_intervals:,}",
