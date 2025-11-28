@@ -27,6 +27,63 @@ MIN_RETRY_DELAY = 1  # seconds
 DEFAULT_PAGE_SIZE = 100000  # Max records per request
 MAX_WARNING_LOGS = 5  # Max number of malformed datetime warnings to log
 
+# Power plant to resource code mapping
+POWER_PLANT_TO_RESOURCES = {
+    "Bełchatów": ["BEL 2-02", "BEL 2-03", "BEL 2-04", "BEL 2-05", "BEL 4-06", "BEL 4-07", "BEL 4-08", "BEL 4-09", "BEL 4-10", "BEL 4-11", "BEL 4-12", "BEL 4-14"],
+    "Chorzów": ["CHZ21S01", "CHZ21S02"],
+    "Dolna Odra": ["DOD 2-05", "DOD 4-07", "DOD 4-08", "DOD_2-06"],
+    "EC Czechnica-2": ["CZN_1S01"],
+    "EC Rzeszów": ["REC 1-01"],
+    "EC Siekierki": ["WSIB1-07", "WSIB1-08", "WSIB1-09", "WSIB1-10"],
+    "EC Stalowa Wola": ["STW42S12"],
+    "EC Wrotków": ["LEC 1-01"],
+    "EC Włocławek": ["WLC_2S01"],
+    "EC Łódź-4": ["LD4 1-03"],
+    "EC Żerań 2": ["WZE22-20", "WZE22S20"],
+    "Gryfino": ["EGF_4S09", "EGF_4S10"],
+    "Jaworzno 2 JWCD": ["JW2_4-07"],
+    "Jaworzno 3": ["JW3 1-03", "JW3 2-01", "JW3 2-02", "JW3 2-04", "JW3 2-05", "JW3 2-06"],
+    "Karolin 2": ["KAR 1-03", "KAR_1-02"],
+    "Katowice": ["KAT 1-01"],
+    "Kozienice 1": ["KOZ11S02", "KOZ11S06", "KOZ12S01", "KOZ12S03", "KOZ12S04", "KOZ12S05", "KOZ12S07", "KOZ12S08"],
+    "Kozienice 2": ["KOZ24S09", "KOZ24S10", "KOZ24S11"],
+    "Kraków Łęg": ["KLE 1-01", "KLE 1-02", "KLE 1-03", "KLE 1-04"],
+    "Opole": ["OPL 1-01", "OPL 1-02", "OPL 4-03", "OPL 4-04", "OPL 4-05", "OPL 4-06"],
+    "Ostrołęka B": ["OSB_1S03", "OSB_2S01", "OSB_2S02"],
+    "Porąbka Żar": ["PZR 2-01", "PZR 2-02", "PZR 2-03", "PZR 2-04"],
+    "Połaniec": ["POL_2S02", "POL_2S03", "POL_2S04", "POL_4S05", "POL_4S06", "POL_4S07"],
+    "Połaniec 2-Pasywna": ["POL24S09"],
+    "Pątnów 2": ["PAT24S09"],
+    "Płock": ["PLO_4S01"],
+    "Rybnik": ["RYB 2-05", "RYB 2-06", "RYB 4-07", "RYB 4-08"],
+    "Siersza": ["SIA 1-01", "SIA 1-02"],
+    "Skawina": ["SNA11S03", "SNA22S05", "SNA22S06"],
+    "Turów": ["TUR 1-01", "TUR 2-02", "TUR 2-03", "TUR 2-04", "TUR 2-05", "TUR 2-06", "TUR 4-11"],
+    "Wrocław": ["WROB1-02", "WROB1-03"],
+    "Zielona Góra": ["ZGR22S01"],
+    "Łagisza": ["LGA 4-10"],
+    "Łaziska 3": ["LZA31-09", "LZA31-10", "LZA32-11", "LZA32-12"],
+    "Żarnowiec": ["ZRN_4-01", "ZRN_4-02", "ZRN_4-03", "ZRN_4-04"],
+}
+
+# All resource codes (flattened from power plant mapping)
+ALL_RESOURCE_CODES = [
+    "BEL 2-02", "BEL 2-03", "BEL 2-04", "BEL 2-05", "BEL 4-06", "BEL 4-07", "BEL 4-08", "BEL 4-09",
+    "BEL 4-10", "BEL 4-11", "BEL 4-12", "BEL 4-14", "CHZ21S01", "CHZ21S02", "CZN_1S01", "DOD 2-05",
+    "DOD 4-07", "DOD 4-08", "DOD_2-06", "EGF_4S09", "EGF_4S10", "JW2_4-07", "JW3 1-03", "JW3 2-01",
+    "JW3 2-02", "JW3 2-04", "JW3 2-05", "JW3 2-06", "KAR 1-03", "KAR_1-02", "KAT 1-01", "KLE 1-01",
+    "KLE 1-02", "KLE 1-03", "KLE 1-04", "KOZ11S02", "KOZ11S06", "KOZ12S01", "KOZ12S03", "KOZ12S04",
+    "KOZ12S05", "KOZ12S07", "KOZ12S08", "KOZ24S09", "KOZ24S10", "KOZ24S11", "LD4 1-03", "LEC 1-01",
+    "LGA 4-10", "LZA31-09", "LZA31-10", "LZA32-11", "LZA32-12", "OPL 1-01", "OPL 1-02", "OPL 4-03",
+    "OPL 4-04", "OPL 4-05", "OPL 4-06", "OSB_1S03", "OSB_2S01", "OSB_2S02", "PAT24S09", "PLO_4S01",
+    "POL24S09", "POL_2S02", "POL_2S03", "POL_2S04", "POL_4S05", "POL_4S06", "POL_4S07", "PZR 2-01",
+    "PZR 2-02", "PZR 2-03", "PZR 2-04", "REC 1-01", "RYB 2-05", "RYB 2-06", "RYB 4-07", "RYB 4-08",
+    "SIA 1-01", "SIA 1-02", "SNA11S03", "SNA22S05", "SNA22S06", "STW42S12", "TUR 1-01", "TUR 2-02",
+    "TUR 2-03", "TUR 2-04", "TUR 2-05", "TUR 2-06", "TUR 4-11", "WLC_2S01", "WROB1-02", "WROB1-03",
+    "WSIB1-07", "WSIB1-08", "WSIB1-09", "WSIB1-10", "WZE22-20", "WZE22S20", "ZGR22S01", "ZRN_4-01",
+    "ZRN_4-02", "ZRN_4-03", "ZRN_4-04"
+]
+
 
 # ============================================================================
 # API FUNCTIONS
@@ -235,8 +292,50 @@ def calculate_time_coverage(
         return 0.0, None, None
 
 
-def calculate_expected_intervals(start_date: date, end_date: date) -> int:
-    """Calculate expected number of 15-minute intervals in date range."""
+def calculate_expected_intervals(
+    start_date: date,
+    end_date: date,
+    filter_type: str = "Wszystkie dane",
+    selected_power_plants: Optional[List[str]] = None,
+    selected_resources: Optional[List[str]] = None
+) -> int:
+    """
+    Calculate expected number of 15-minute measurements based on date range and filters.
+    
+    Args:
+        start_date: Start date
+        end_date: End date
+        filter_type: Type of filter ("Wszystkie dane", "Według elektrowni", "Według kodów jednostek")
+        selected_power_plants: List of selected power plants (if filtering by power plant)
+        selected_resources: List of selected resource codes (if filtering by resource code)
+    
+    Returns:
+        Expected number of 15-minute measurements (time_intervals * num_resources)
+    """
+    # Calculate number of 15-minute intervals in the date range
     delta = end_date - start_date
     total_minutes = delta.total_seconds() / 60
-    return int(total_minutes / 15) + 1
+    time_intervals = int(total_minutes / 15) + 1
+    
+    # Determine the number of resources based on filter type
+    num_resources = 0
+    
+    if filter_type == "Wszystkie dane":
+        # All resource codes
+        num_resources = len(ALL_RESOURCE_CODES)
+    elif filter_type == "Według elektrowni" and selected_power_plants:
+        # Count resources from selected power plants
+        resource_set = set()
+        for plant in selected_power_plants:
+            if plant in POWER_PLANT_TO_RESOURCES:
+                resource_set.update(POWER_PLANT_TO_RESOURCES[plant])
+        num_resources = len(resource_set)
+    elif filter_type == "Według kodów jednostek" and selected_resources:
+        # Direct count of selected resources
+        num_resources = len(selected_resources)
+    else:
+        # Default case: if no filter is properly selected, assume all resources
+        num_resources = len(ALL_RESOURCE_CODES)
+    
+    # Expected measurements = time intervals * number of resources
+    return time_intervals * num_resources
