@@ -36,7 +36,7 @@ def fetch_pse_page(
     params: Optional[Dict[str, str]] = None,
     is_first_request: bool = True,
     retry_count: int = 0
-) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
+) -> tuple[Optional[Dict[str, Any]], Optional[str], bool]:
     """
     Fetch a single page from PSE API with exponential backoff retry logic.
     
@@ -47,7 +47,10 @@ def fetch_pse_page(
         retry_count: Current retry attempt number
     
     Returns:
-        Tuple of (response_data, next_link_url) or (None, None) on failure
+        Tuple of (response_data, next_link_url, error_occurred)
+        - response_data: The JSON response or None on error
+        - next_link_url: URL for next page or None if no more pages or error
+        - error_occurred: True if request failed after all retries, False otherwise
     """
     headers = {"Accept": "application/json"}
     
@@ -75,7 +78,7 @@ def fetch_pse_page(
         
         logger.info(f"Successfully fetched {len(records)} records")
         logger.info(f"Next link: {next_link}")
-        return data, next_link
+        return data, next_link, False
         
     except (requests.exceptions.RequestException, json.JSONDecodeError) as e:
         if retry_count < MAX_RETRIES:
@@ -88,7 +91,7 @@ def fetch_pse_page(
             return fetch_pse_page(url, params, is_first_request, retry_count + 1)
         else:
             logger.error(f"Max retries exceeded: {e}")
-            return None, None
+            return None, None, True
 
 
 def fetch_all_pse_data(
@@ -141,13 +144,13 @@ def fetch_all_pse_data(
         logger.info(f"Fetching page {page_count}...")
         
         # Fetch current page
-        data, next_link = fetch_pse_page(
+        data, next_link, error_occurred = fetch_pse_page(
             current_url,
             params=params if use_params else None,
             is_first_request=use_params
         )
         
-        if data is None:
+        if error_occurred or data is None:
             logger.error(f"Failed to fetch page {page_count}")
             break
         
