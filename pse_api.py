@@ -25,6 +25,7 @@ MAX_RETRIES = 3
 RETRY_BACKOFF_MULTIPLIER = 2
 MIN_RETRY_DELAY = 1  # seconds
 DEFAULT_PAGE_SIZE = 100000  # Max records per request
+MAX_WARNING_LOGS = 5  # Max number of malformed datetime warnings to log
 
 
 # ============================================================================
@@ -208,10 +209,10 @@ def calculate_time_coverage(
             dtime_objects.append(datetime.strptime(dt, "%Y-%m-%d %H:%M:%S"))
         except (ValueError, TypeError) as e:
             skipped_count += 1
-            if skipped_count <= 5:  # Log first few errors only
+            if skipped_count <= MAX_WARNING_LOGS:  # Log first few errors only
                 logger.warning(f"Skipping malformed dtime value '{dt}': {e}")
     
-    if skipped_count > 5:
+    if skipped_count > MAX_WARNING_LOGS:
         logger.warning(f"Skipped {skipped_count} total malformed dtime values")
     
     if not dtime_objects:
