@@ -27,7 +27,10 @@ from pse_api import (
     PSE_API_BASE_URL,
     MAX_RETRIES,
     POWER_PLANT_TO_RESOURCES,
-    ALL_RESOURCE_CODES
+    ALL_RESOURCE_CODES,
+    FILTER_TYPE_ALL,
+    FILTER_TYPE_BY_POWER_PLANT,
+    FILTER_TYPE_BY_RESOURCE_CODE
 )
 
 # Configure logging
@@ -80,7 +83,7 @@ def main():
     
     filter_type = st.radio(
         "Wybierz sposób filtrowania",
-        options=["Wszystkie dane", "Według elektrowni", "Według kodów jednostek"],
+        options=[FILTER_TYPE_ALL, FILTER_TYPE_BY_POWER_PLANT, FILTER_TYPE_BY_RESOURCE_CODE],
         index=0,
         horizontal=True,
         help="Wybierz sposób filtrowania danych - możesz pobrać wszystko, wybrać konkretne elektrownie lub jednostki wytwórcze"
@@ -89,7 +92,7 @@ def main():
     selected_power_plants = []
     selected_resources = []
     
-    if filter_type == "Według elektrowni":
+    if filter_type == FILTER_TYPE_BY_POWER_PLANT:
         # Power plant filter
         power_plants = [
             "Siersza", "Rybnik", "EC Włocławek", "Porąbka Żar", "EC Stalowa Wola", 
@@ -108,7 +111,7 @@ def main():
             help="Wybierz elektrownie, dla których chcesz pobrać dane"
         )
     
-    elif filter_type == "Według kodów jednostek":
+    elif filter_type == FILTER_TYPE_BY_RESOURCE_CODE:
         # Resource code filter
         resource_codes = [
             "BEL 2-02", "BEL 2-03", "BEL 2-04", "BEL 2-05", "BEL 4-06", "BEL 4-07", "BEL 4-08", "BEL 4-09",

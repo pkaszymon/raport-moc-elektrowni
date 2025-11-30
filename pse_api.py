@@ -27,6 +27,11 @@ MIN_RETRY_DELAY = 1  # seconds
 DEFAULT_PAGE_SIZE = 100000  # Max records per request
 MAX_WARNING_LOGS = 5  # Max number of malformed datetime warnings to log
 
+# Filter type constants
+FILTER_TYPE_ALL = "Wszystkie dane"
+FILTER_TYPE_BY_POWER_PLANT = "Według elektrowni"
+FILTER_TYPE_BY_RESOURCE_CODE = "Według kodów jednostek"
+
 # Power plant to resource code mapping
 POWER_PLANT_TO_RESOURCES = {
     "Bełchatów": ["BEL 2-02", "BEL 2-03", "BEL 2-04", "BEL 2-05", "BEL 4-06", "BEL 4-07", "BEL 4-08", "BEL 4-09", "BEL 4-10", "BEL 4-11", "BEL 4-12", "BEL 4-14"],
@@ -295,7 +300,7 @@ def calculate_time_coverage(
 def calculate_expected_intervals(
     start_date: date,
     end_date: date,
-    filter_type: str = "Wszystkie dane",
+    filter_type: str = FILTER_TYPE_ALL,
     selected_power_plants: Optional[List[str]] = None,
     selected_resources: Optional[List[str]] = None
 ) -> int:
@@ -305,7 +310,7 @@ def calculate_expected_intervals(
     Args:
         start_date: Start date
         end_date: End date
-        filter_type: Type of filter ("Wszystkie dane", "Według elektrowni", "Według kodów jednostek")
+        filter_type: Type of filter (use FILTER_TYPE_* constants)
         selected_power_plants: List of selected power plants (if filtering by power plant)
         selected_resources: List of selected resource codes (if filtering by resource code)
     
@@ -320,17 +325,17 @@ def calculate_expected_intervals(
     # Determine the number of resources based on filter type
     num_resources = 0
     
-    if filter_type == "Wszystkie dane":
+    if filter_type == FILTER_TYPE_ALL:
         # All resource codes
         num_resources = len(ALL_RESOURCE_CODES)
-    elif filter_type == "Według elektrowni" and selected_power_plants:
+    elif filter_type == FILTER_TYPE_BY_POWER_PLANT and selected_power_plants:
         # Count resources from selected power plants
         resource_set = set()
         for plant in selected_power_plants:
             if plant in POWER_PLANT_TO_RESOURCES:
                 resource_set.update(POWER_PLANT_TO_RESOURCES[plant])
         num_resources = len(resource_set)
-    elif filter_type == "Według kodów jednostek" and selected_resources:
+    elif filter_type == FILTER_TYPE_BY_RESOURCE_CODE and selected_resources:
         # Direct count of selected resources
         num_resources = len(selected_resources)
     else:
