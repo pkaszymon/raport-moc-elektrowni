@@ -340,6 +340,12 @@ def calculate_expected_intervals(
         num_resources = len(selected_resources)
     else:
         # Default case: if no filter is properly selected, assume all resources
+        logger.warning(
+            "calculate_expected_intervals: Malformed or incomplete filter parameters detected "
+            "(filter_type=%r, selected_power_plants=%r, selected_resources=%r). "
+            "Defaulting to all resources.",
+            filter_type, selected_power_plants, selected_resources
+        )
         num_resources = len(ALL_RESOURCE_CODES)
     
     # Expected measurements = time intervals * number of resources
