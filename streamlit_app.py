@@ -633,7 +633,7 @@ def main():
                             pivot_df = year_df.pivot(
                                 values=value_col,
                                 index=["date", "period"],
-                                columns="resource_code",
+                                on="resource_code",
                                 aggregate_function="first"
                             )
                         else:
@@ -641,7 +641,7 @@ def main():
                             pivot_df = year_df.pivot(
                                 values=value_col,
                                 index=["date", "period"],
-                                columns="resource_code",
+                                on="resource_code",
                                 aggregate_function="mean"
                             )
                         
@@ -661,7 +661,7 @@ def main():
                         pivot_df = plant_df.pivot(
                             values=value_col,
                             index=["date", "period"],
-                            columns="resource_code",
+                            on="resource_code",
                             aggregate_function="first"
                         )
                     else:
@@ -669,7 +669,7 @@ def main():
                         pivot_df = plant_df.pivot(
                             values=value_col,
                             index=["date", "period"],
-                            columns="resource_code",
+                            on="resource_code",
                             aggregate_function="mean"
                         )
                     
