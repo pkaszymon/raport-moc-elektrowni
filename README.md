@@ -110,6 +110,35 @@ You can modify the following settings in `pse_api.py`:
 - `requests>=2.32.5` - HTTP library for API calls
 - `openpyxl>=3.1.5` - Excel file handling
 - `xlsxwriter>=3.2.9` - Excel file creation
+- `pytest>=7.4.0` - Testing framework
+
+## 🧪 Testing
+
+The project includes automated tests for the new label detection functionality.
+
+### Running Tests
+
+To run the tests:
+
+```bash
+pytest test_pse_api.py -v
+```
+
+Or run all tests in the project:
+
+```bash
+pytest -v
+```
+
+### Test Coverage
+
+The test suite covers:
+- Empty data handling
+- Known labels (no false positives)
+- New power plant detection
+- New resource codes for existing plants
+- Mixed scenarios (new plants + new codes)
+- Edge cases (duplicates, missing fields, sorting)
 
 ## 🔐 License
 

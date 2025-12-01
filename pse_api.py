@@ -350,3 +350,81 @@ def calculate_expected_intervals(
     
     # Expected measurements = time intervals * number of resources
     return time_intervals * num_resources
+
+
+def detect_new_labels(data: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Detect new power plants and resource codes that are not present in the constants.
+    
+    Args:
+        data: List of records from PSE API
+    
+    Returns:
+        Dictionary containing:
+        - 'has_new_labels': bool - whether new labels were detected
+        - 'new_power_plants': list - new power plant names
+        - 'new_resource_codes': list - new resource codes
+        - 'new_mapping': dict - mapping of new power plants to their new resource codes
+    """
+    if not data:
+        return {
+            'has_new_labels': False,
+            'new_power_plants': [],
+            'new_resource_codes': [],
+            'new_mapping': {}
+        }
+    
+    # Extract unique power plants and resource codes from data
+    data_power_plants = set()
+    data_resource_codes = set()
+    data_mapping = {}  # power_plant -> [resource_codes]
+    
+    for record in data:
+        power_plant = record.get('power_plant')
+        resource_code = record.get('resource_code')
+        
+        if power_plant:
+            data_power_plants.add(power_plant)
+            if power_plant not in data_mapping:
+                data_mapping[power_plant] = set()
+        
+        if resource_code:
+            data_resource_codes.add(resource_code)
+            if power_plant and resource_code:
+                data_mapping[power_plant].add(resource_code)
+    
+    # Get known power plants and resource codes
+    known_power_plants = set(POWER_PLANT_TO_RESOURCES.keys())
+    known_resource_codes = set(ALL_RESOURCE_CODES)
+    
+    # Find new labels
+    new_power_plants = sorted(list(data_power_plants - known_power_plants))
+    new_resource_codes = sorted(list(data_resource_codes - known_resource_codes))
+    
+    # Build mapping of power plants to their new resource codes
+    new_mapping = {}
+    
+    # Add new power plants with all their resource codes
+    for plant in new_power_plants:
+        if plant in data_mapping and data_mapping[plant]:
+            # Get all resource codes for this new plant
+            new_mapping[plant] = sorted(list(data_mapping[plant]))
+    
+    # Add existing power plants that have new resource codes
+    for plant in known_power_plants:
+        if plant in data_mapping:
+            known_resources_for_plant = set(POWER_PLANT_TO_RESOURCES.get(plant, []))
+            new_resources_for_plant = data_mapping[plant] - known_resources_for_plant
+            if new_resources_for_plant:
+                new_mapping[plant] = sorted(list(new_resources_for_plant))
+    
+    has_new_labels = len(new_power_plants) > 0 or len(new_resource_codes) > 0
+    
+    logger.info(f"Label detection: found {len(new_power_plants)} new power plants and {len(new_resource_codes)} new resource codes")
+    
+    return {
+        'has_new_labels': has_new_labels,
+        'new_power_plants': new_power_plants,
+        'new_resource_codes': new_resource_codes,
+        'new_mapping': new_mapping
+    }
