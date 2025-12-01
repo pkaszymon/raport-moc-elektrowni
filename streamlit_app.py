@@ -646,7 +646,7 @@ def main():
             else:  # AGGREGATION_DAILY
                 # Daily aggregation
                 plant_df = plant_df.with_columns([
-                    (pl.lit("0:00-23:59")).alias("period")
+                    (pl.lit("00:00-23:59")).alias("period")
                 ])
                 time_label = "dzienny"
             
