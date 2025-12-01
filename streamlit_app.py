@@ -615,13 +615,13 @@ def main():
                         .cast(pl.Utf8).str.zfill(2) + ":00").alias("hour")
                 ])
                 plant_df = plant_df.with_columns([
-                    (pl.col("date") + " " + pl.col("hour")).alias("period")
+                    (pl.col("hour")).alias("period")
                 ])
                 time_label = "godzinowy"
             else:  # AGGREGATION_DAILY
                 # Daily aggregation
                 plant_df = plant_df.with_columns([
-                    pl.col("date").alias("period")
+                    (pl.lit("0:00-23:59")).alias("period")
                 ])
                 time_label = "dzienny"
             
