@@ -158,6 +158,7 @@ class TestDetectNewLabels:
         # Should only detect the complete record
         assert 'Nowa Elektrownia' in result['new_power_plants']
         assert 'NEW 1-01' in result['new_resource_codes']
+        assert len(result['new_mapping']) == 1
     
     def test_sorted_output(self):
         """Test that output lists are sorted alphabetically."""
