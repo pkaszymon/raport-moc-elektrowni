@@ -538,11 +538,29 @@ def main():
                 st.caption(f"Okres: {time_span.days}d {time_span.seconds // 3600}h")
         
         # ========================================================================
-        # Data Aggregation by Power Plant
+        # Data Preview and Preparation
         # ========================================================================
         
         st.divider()
-        st.subheader("🏭 Zestawienie danych według elektrowni")
+        st.subheader("📊 Podgląd i przygotowanie danych")
+        
+        # Aggregation options
+        col_agg, col_split = st.columns(2)
+        
+        with col_agg:
+            aggregation_interval = st.selectbox(
+                "Interwał agregacji danych",
+                options=["15 minut", "1 godzina", "1 dzień"],
+                index=1,  # Default to hourly
+                help="Wybierz interwał czasowy dla agregacji danych"
+            )
+        
+        with col_split:
+            split_by_year = st.checkbox(
+                "Podziel dane według roku",
+                value=False,
+                help="Podziel dane na osobne tabele dla każdego roku (np. Bełchatów 2023, Bełchatów 2024)"
+            )
         
         # Get unique power plants
         unique_power_plants = df.select(pl.col("power_plant").unique()).to_series().to_list()
@@ -557,22 +575,42 @@ def main():
             # Filter data for this power plant
             plant_df = df.filter(pl.col("power_plant") == power_plant)
             
-            # Extract date and period from dtime
-            # Assuming dtime format is "YYYY-MM-DD HH:MM:SS"
+            # Extract date from dtime
             plant_df = plant_df.with_columns([
                 pl.col("dtime").str.slice(0, 10).alias("date"),
-                (pl.col("dtime").str.slice(11, 2).str.zfill(2) + ":00 - " + 
-                    ((pl.col("dtime").str.slice(11, 2).cast(pl.Int32) + 1) % 24)
-                    .cast(pl.Utf8).str.zfill(2) + ":00").alias("hour")  # Format as "HH:00 - HH:00"
+                pl.col("dtime").str.slice(0, 4).alias("year")
             ])
+            
+            # Determine grouping based on aggregation interval
+            if aggregation_interval == "15 minut":
+                # No aggregation - use original dtime
+                plant_df = plant_df.with_columns([
+                    pl.col("dtime").alias("period")
+                ])
+                time_label = "15-minutowy"
+            elif aggregation_interval == "1 godzina":
+                # Hourly aggregation
+                plant_df = plant_df.with_columns([
+                    (pl.col("dtime").str.slice(11, 2).str.zfill(2) + ":00 - " + 
+                        ((pl.col("dtime").str.slice(11, 2).cast(pl.Int32) + 1) % 24)
+                        .cast(pl.Utf8).str.zfill(2) + ":00").alias("hour")
+                ])
+                plant_df = plant_df.with_columns([
+                    (pl.col("date") + " " + pl.col("hour")).alias("period")
+                ])
+                time_label = "godzinowy"
+            else:  # "1 dzień"
+                # Daily aggregation
+                plant_df = plant_df.with_columns([
+                    pl.col("date").alias("period")
+                ])
+                time_label = "dzienny"
             
             # Get unique resource codes for this power plant
             resource_codes = plant_df.select(pl.col("resource_code").unique()).to_series().to_list()
             resource_codes = sorted([rc for rc in resource_codes if rc is not None])
             
-            # Create pivot table: aggregate by date and hour, with resource_codes as columns
-            # We'll use the 'wartosc' or other value field as the aggregated value
-            # First, let's check which value column exists
+            # Check which value column exists
             available_cols = plant_df.columns
             value_col = None
             for possible_col in ["wartosc", "mw", "value", "capacity_mw", "generation_mw", "capacity"]:
@@ -581,134 +619,207 @@ def main():
                     break
             
             if value_col:
-                # Pivot: rows are (date, hour), columns are resource_codes
-                # Use mean to aggregate the 4 fifteen-minute intervals into 1 hour
-                pivot_df = plant_df.pivot(
-                    values=value_col,
-                    index=["date", "hour"],
-                    columns="resource_code",
-                    aggregate_function="mean"  # Calculate arithmetic mean for hourly aggregation
-                )
-                
-                # Sort by date and hour
-                pivot_df = pivot_df.sort(["date", "hour"])
-                
-                power_plant_pivot_tables[power_plant] = pivot_df
+                if split_by_year:
+                    # Split by year
+                    unique_years = plant_df.select(pl.col("year").unique()).to_series().to_list()
+                    unique_years = sorted([y for y in unique_years if y is not None])
+                    
+                    for year in unique_years:
+                        year_df = plant_df.filter(pl.col("year") == year)
+                        
+                        # Create pivot table
+                        if aggregation_interval == "15 minut":
+                            # No aggregation for 15-minute intervals
+                            pivot_df = year_df.pivot(
+                                values=value_col,
+                                index=["date", "period"],
+                                columns="resource_code",
+                                aggregate_function="first"
+                            )
+                        else:
+                            # Use mean for hourly and daily aggregations
+                            pivot_df = year_df.pivot(
+                                values=value_col,
+                                index=["date", "period"],
+                                columns="resource_code",
+                                aggregate_function="mean"
+                            )
+                        
+                        # Sort by date and period
+                        pivot_df = pivot_df.sort(["date", "period"])
+                        
+                        table_name = f"{power_plant} {year}"
+                        power_plant_pivot_tables[table_name] = {
+                            'data': pivot_df,
+                            'aggregation': time_label,
+                            'year': year
+                        }
+                else:
+                    # No year split - all data together
+                    if aggregation_interval == "15 minut":
+                        # No aggregation for 15-minute intervals
+                        pivot_df = plant_df.pivot(
+                            values=value_col,
+                            index=["date", "period"],
+                            columns="resource_code",
+                            aggregate_function="first"
+                        )
+                    else:
+                        # Use mean for hourly and daily aggregations
+                        pivot_df = plant_df.pivot(
+                            values=value_col,
+                            index=["date", "period"],
+                            columns="resource_code",
+                            aggregate_function="mean"
+                        )
+                    
+                    # Sort by date and period
+                    pivot_df = pivot_df.sort(["date", "period"])
+                    
+                    power_plant_pivot_tables[power_plant] = {
+                        'data': pivot_df,
+                        'aggregation': time_label,
+                        'year': None
+                    }
             else:
                 st.warning(f"Nie znaleziono odpowiedniej kolumny z wartościami dla {power_plant}. Dostępne kolumny: {available_cols}")
         
         # Store in session state
         st.session_state.power_plant_pivot_tables = power_plant_pivot_tables
         
-        st.success(f"✓ Utworzono tabele dla {len(power_plant_pivot_tables)} elektrowni")
+        st.success(f"✓ Utworzono {len(power_plant_pivot_tables)} tabel")
     
-        # Display pivot tables
+        # Display preview and tile panel
         if power_plant_pivot_tables:
+            # Preview section
+            st.divider()
+            st.subheader("👁️ Podgląd danych")
+            
             selected_plant = st.selectbox(
-                "Wybierz elektrownię do podglądu",
+                "Wybierz tabelę do podglądu",
                 options=list(power_plant_pivot_tables.keys()),
-                help="Wybierz elektrownię, aby zobaczyć jej dane"
+                help="Wybierz tabelę, aby zobaczyć jej dane"
             )
             
             if selected_plant:
-                pivot_df = power_plant_pivot_tables[selected_plant]
+                table_info = power_plant_pivot_tables[selected_plant]
+                pivot_df = table_info['data']
+                aggregation_label = table_info['aggregation']
                 
                 col_plant_info, col_plant_stats = st.columns([2, 1])
                 
                 with col_plant_info:
-                    st.write(f"**Elektrownia:** `{selected_plant}`")
-                    st.write(f"**Liczba wierszy (data-godzina):** {len(pivot_df):,}")
+                    st.write(f"**Tabela:** `{selected_plant}`")
+                    st.write(f"**Agregacja:** {aggregation_label}")
+                    st.write(f"**Liczba wierszy:** {len(pivot_df):,}")
                 
                 with col_plant_stats:
-                    # Number of resource code columns (excluding date and hour)
-                    resource_cols = [c for c in pivot_df.columns if c not in ["date", "hour"]]
+                    # Number of resource code columns (excluding date and period)
+                    resource_cols = [c for c in pivot_df.columns if c not in ["date", "period"]]
                     st.metric("Kolumn z danymi", len(resource_cols))
                     st.metric("Rozmiar tabeli", f"{pivot_df.estimated_size('mb'):.2f} MB")
                 
                 # Show preview
                 st.write("**Podgląd (pierwsze 50 wierszy):**")
-                st.caption("Dane zagregowane godzinowo - średnia z pomiarów 15-minutowych")
+                st.caption(f"Dane zagregowane z interwałem: {aggregation_label}")
                 st.dataframe(
                     pivot_df.head(50),
                     width='stretch',
                     height=400
                 )
-                
-                # Export single power plant table
-                st.divider()
-                st.subheader("📥 Pobierz dane")
-                
-                col_export1, col_export2 = st.columns(2)
-                
-                with col_export1:
-                    selected_plant = st.selectbox(
-                        "Wybierz elektrownię do pobrania",
-                        options=list(power_plant_pivot_tables.keys()),
-                        help="Wybierz elektrownię, aby pobrać jej dane jako Excel"
-                    )
-                    # Export single table as Excel
-                    output = io.BytesIO()
-                    pivot_df.write_excel(output)
-                    output.seek(0)
-                    
-                    st.download_button(
-                        label=f"💾 Pobierz {selected_plant} (Excel)",
-                        data=output,
-                        file_name=f"{selected_plant}_dane.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        help="Pobierz dane tej elektrowni jako plik Excel"
-                    )
-                
-                with col_export2:
-                    # Export all tables as single Excel with multiple sheets
-                    if len(power_plant_pivot_tables.keys()) > 1:
-                        if st.button("📦 Przygotuj wszystkie elektrownie do pobrania (Excel)", help="Utwórz plik Excel ze wszystkimi elektrowniami na osobnych arkuszach"):
-                            with st.spinner("Tworzę plik Excel ze wszystkimi elektrowniami..."):
-                                # Use xlsxwriter to create multi-sheet Excel file
-                                import xlsxwriter
-                                import numpy as np
+            
+            # Tile panel for downloads
+            st.divider()
+            st.subheader("📥 Pobierz arkusze")
+            st.write("Kliknij przycisk przy wybranym arkuszu, aby pobrać go jako plik Excel.")
+            
+            # Create tiles in a grid layout
+            num_cols = 3
+            tables_list = list(power_plant_pivot_tables.items())
+            
+            for i in range(0, len(tables_list), num_cols):
+                cols = st.columns(num_cols)
+                for j in range(num_cols):
+                    if i + j < len(tables_list):
+                        table_name, table_info = tables_list[i + j]
+                        pivot_df = table_info['data']
+                        aggregation_label = table_info['aggregation']
+                        
+                        with cols[j]:
+                            # Create a card-like container
+                            with st.container(border=True):
+                                st.write(f"**{table_name}**")
+                                st.caption(f"📊 {len(pivot_df):,} rekordów")
+                                st.caption(f"⏱️ Interwał: {aggregation_label}")
                                 
-                                output_all = io.BytesIO()
-                                workbook = xlsxwriter.Workbook(output_all, {'in_memory': True, 'nan_inf_to_errors': True})
+                                # Export button
+                                output = io.BytesIO()
+                                pivot_df.write_excel(output)
+                                output.seek(0)
                                 
-                                for plant_name, plant_pivot_df in power_plant_pivot_tables.items():
-                                    # Sanitize sheet name (Excel has 31 char limit and some char restrictions)
-                                    sheet_name = plant_name[:31].replace("/", "_").replace("\\", "_").replace(":", "_").replace("*", "_").replace("?", "_").replace("[", "_").replace("]", "_")
-                                    
-                                    # Convert to pandas for xlsxwriter compatibility
-                                    pandas_df = plant_pivot_df.to_pandas()
-                                    
-                                    # Write to worksheet
-                                    worksheet = workbook.add_worksheet(sheet_name)
-                                    
-                                    # Write headers
-                                    for col_num, col_name in enumerate(pandas_df.columns):
-                                        worksheet.write(0, col_num, col_name)
-                                    
-                                    # Write data, handling NaN/Inf values
-                                    for row_num, row_data in enumerate(pandas_df.values, start=1):
-                                        for col_num, value in enumerate(row_data):
-                                            # Handle NaN and Inf values
-                                            if isinstance(value, (float, np.floating)):
-                                                if np.isnan(value) or np.isinf(value):
-                                                    worksheet.write(row_num, col_num, None)  # Write empty cell
-                                                else:
-                                                    worksheet.write(row_num, col_num, value)
-                                            else:
-                                                worksheet.write(row_num, col_num, value)
-                                
-                                workbook.close()
-                                output_all.seek(0)
-                                st.session_state.excel_export = output_all.getvalue()
-                                st.success(f"✓ Plik Excel gotowy z {len(power_plant_pivot_tables)} arkuszami")
-                            if 'excel_export' in st.session_state:
+                                safe_filename = table_name.replace("/", "_").replace("\\", "_").replace(":", "_")
                                 st.download_button(
-                                    label=f"💾 Pobierz wszystkie elektrownie (Excel)",
-                                    data=st.session_state.excel_export,
-                                    file_name=f"wszystkie_elektrownie_{start_date.isoformat()}_{end_date.isoformat()}.xlsx",
+                                    label="💾 Pobierz Excel",
+                                    data=output,
+                                    file_name=f"{safe_filename}.xlsx",
                                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                    help="Pobierz dane wszystkich elektrowni w jednym pliku Excel z wieloma arkuszami"
+                                    key=f"download_{table_name}",
+                                    use_container_width=True
                                 )
+            
+            # Option to download all as single Excel file with multiple sheets
+            st.divider()
+            st.subheader("📦 Pobierz wszystkie arkusze")
+            
+            if st.button("📦 Przygotuj wszystkie tabele jako jeden plik Excel", help="Utwórz plik Excel ze wszystkimi tabelami na osobnych arkuszach"):
+                with st.spinner("Tworzę plik Excel ze wszystkimi tabelami..."):
+                    import xlsxwriter
+                    import numpy as np
+                    
+                    output_all = io.BytesIO()
+                    workbook = xlsxwriter.Workbook(output_all, {'in_memory': True, 'nan_inf_to_errors': True})
+                    
+                    for table_name, table_info in power_plant_pivot_tables.items():
+                        pivot_df = table_info['data']
+                        # Sanitize sheet name (Excel has 31 char limit and some char restrictions)
+                        sheet_name = table_name[:31].replace("/", "_").replace("\\", "_").replace(":", "_").replace("*", "_").replace("?", "_").replace("[", "_").replace("]", "_")
+                        
+                        # Convert to pandas for xlsxwriter compatibility
+                        pandas_df = pivot_df.to_pandas()
+                        
+                        # Write to worksheet
+                        worksheet = workbook.add_worksheet(sheet_name)
+                        
+                        # Write headers
+                        for col_num, col_name in enumerate(pandas_df.columns):
+                            worksheet.write(0, col_num, col_name)
+                        
+                        # Write data, handling NaN/Inf values
+                        for row_num, row_data in enumerate(pandas_df.values, start=1):
+                            for col_num, value in enumerate(row_data):
+                                # Handle NaN and Inf values
+                                if isinstance(value, (float, np.floating)):
+                                    if np.isnan(value) or np.isinf(value):
+                                        worksheet.write(row_num, col_num, None)  # Write empty cell
+                                    else:
+                                        worksheet.write(row_num, col_num, value)
+                                else:
+                                    worksheet.write(row_num, col_num, value)
+                    
+                    workbook.close()
+                    output_all.seek(0)
+                    st.session_state.excel_export = output_all.getvalue()
+                    st.success(f"✓ Plik Excel gotowy z {len(power_plant_pivot_tables)} arkuszami")
+                    
+            if 'excel_export' in st.session_state:
+                st.download_button(
+                    label=f"💾 Pobierz wszystkie tabele (Excel)",
+                    data=st.session_state.excel_export,
+                    file_name=f"wszystkie_tabele_{start_date.isoformat()}_{end_date.isoformat()}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    help="Pobierz dane wszystkich tabel w jednym pliku Excel z wieloma arkuszami",
+                    use_container_width=True
+                )
 
 if __name__ == "__main__":
     main()
