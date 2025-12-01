@@ -24,6 +24,7 @@ from pse_api import (
     fetch_pse_page,
     calculate_time_coverage,
     calculate_expected_intervals,
+    detect_new_labels,
     PSE_API_BASE_URL,
     MAX_RETRIES,
     POWER_PLANT_TO_RESOURCES,
@@ -429,6 +430,38 @@ def main():
                         "💡 **Spróbuj ponownie:** Kliknij przycisk 'Pobierz dane' aby ponowić próbę."
                     )
                     continue_fetching = False
+            
+            # Check for new labels when fetching all data without filters
+            if filter_type == FILTER_TYPE_ALL and st.session_state.all_data:
+                detection_result = detect_new_labels(st.session_state.all_data)
+                
+                if detection_result['has_new_labels']:
+                    # Build alert message
+                    alert_message = "⚠️ **Wykryto nowe etykiety w danych z API PSE!**\n\n"
+                    alert_message += "Znaleziono następujące nowe etykiety, które nie są obecne w filtrach aplikacji:\n\n"
+                    
+                    if detection_result['new_power_plants']:
+                        alert_message += f"**Nowe elektrownie ({len(detection_result['new_power_plants'])}):**\n"
+                        for plant in detection_result['new_power_plants']:
+                            alert_message += f"- {plant}\n"
+                        alert_message += "\n"
+                    
+                    if detection_result['new_resource_codes']:
+                        alert_message += f"**Nowe kody jednostek ({len(detection_result['new_resource_codes'])}):**\n"
+                        for code in detection_result['new_resource_codes']:
+                            alert_message += f"- {code}\n"
+                        alert_message += "\n"
+                    
+                    if detection_result['new_mapping']:
+                        alert_message += "**Mapowanie elektrowni do nowych kodów jednostek:**\n"
+                        for plant, codes in detection_result['new_mapping'].items():
+                            if codes:
+                                alert_message += f"- **{plant}**: {', '.join(codes)}\n"
+                        alert_message += "\n"
+                    
+                    alert_message += "📧 **Skontaktuj się z administratorem aplikacji** w celu zaktualizowania filtrów w kodzie aplikacji."
+                    
+                    st.warning(alert_message)
             
             st.rerun()
     
