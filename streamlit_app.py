@@ -31,7 +31,10 @@ from pse_api import (
     ALL_RESOURCE_CODES,
     FILTER_TYPE_ALL,
     FILTER_TYPE_BY_POWER_PLANT,
-    FILTER_TYPE_BY_RESOURCE_CODE
+    FILTER_TYPE_BY_RESOURCE_CODE,
+    AGGREGATION_15_MIN,
+    AGGREGATION_HOURLY,
+    AGGREGATION_DAILY
 )
 
 # Configure logging
@@ -550,7 +553,7 @@ def main():
         with col_agg:
             aggregation_interval = st.selectbox(
                 "Interwał agregacji danych",
-                options=["15 minut", "1 godzina", "1 dzień"],
+                options=[AGGREGATION_15_MIN, AGGREGATION_HOURLY, AGGREGATION_DAILY],
                 index=1,  # Default to hourly
                 help="Wybierz interwał czasowy dla agregacji danych"
             )
@@ -582,13 +585,13 @@ def main():
             ])
             
             # Determine grouping based on aggregation interval
-            if aggregation_interval == "15 minut":
+            if aggregation_interval == AGGREGATION_15_MIN:
                 # No aggregation - use original dtime
                 plant_df = plant_df.with_columns([
                     pl.col("dtime").alias("period")
                 ])
                 time_label = "15-minutowy"
-            elif aggregation_interval == "1 godzina":
+            elif aggregation_interval == AGGREGATION_HOURLY:
                 # Hourly aggregation
                 plant_df = plant_df.with_columns([
                     (pl.col("dtime").str.slice(11, 2).str.zfill(2) + ":00 - " + 
@@ -599,7 +602,7 @@ def main():
                     (pl.col("date") + " " + pl.col("hour")).alias("period")
                 ])
                 time_label = "godzinowy"
-            else:  # "1 dzień"
+            else:  # AGGREGATION_DAILY
                 # Daily aggregation
                 plant_df = plant_df.with_columns([
                     pl.col("date").alias("period")
@@ -628,7 +631,7 @@ def main():
                         year_df = plant_df.filter(pl.col("year") == year)
                         
                         # Create pivot table
-                        if aggregation_interval == "15 minut":
+                        if aggregation_interval == AGGREGATION_15_MIN:
                             # No aggregation for 15-minute intervals
                             pivot_df = year_df.pivot(
                                 values=value_col,
@@ -656,7 +659,7 @@ def main():
                         }
                 else:
                     # No year split - all data together
-                    if aggregation_interval == "15 minut":
+                    if aggregation_interval == AGGREGATION_15_MIN:
                         # No aggregation for 15-minute intervals
                         pivot_df = plant_df.pivot(
                             values=value_col,
