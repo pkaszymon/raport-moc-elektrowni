@@ -746,73 +746,93 @@ def main():
                     width='stretch',
                     height=400
                 )
+
+            st.subheader("📥 Pliki Excel dla poszczególnych elektrowni")
             
-            # Tile panel for downloads
-            st.divider()
-            st.subheader("📥 Pobierz arkusze")
-            st.write("Kliknij przycisk przy wybranym arkuszu, aby pobrać go jako plik Excel.")
-            
-            # Create tiles in a grid layout
-            num_cols = 3
-            tables_list = list(power_plant_pivot_tables.items())
-            
-            for i in range(0, len(tables_list), num_cols):
-                cols = st.columns(num_cols)
-                for j in range(num_cols):
-                    if i + j < len(tables_list):
-                        table_name, table_info = tables_list[i + j]
-                        pivot_df = table_info['data']
-                        aggregation_label = table_info['aggregation']
-                        
-                        with cols[j]:
-                            # Create a card-like container
-                            with st.container(border=True):
-                                st.write(f"**{table_name}**")
-                                st.caption(f"📊 {len(pivot_df):,} rekordów")
-                                st.caption(f"⏱️ Interwał: {aggregation_label}")
-                                
-                                # Export button
-                                output = io.BytesIO()
-                                pivot_df.write_excel(output)
-                                output.seek(0)
-                                
-                                safe_filename = table_name.replace("/", "_").replace("\\", "_").replace(":", "_")
-                                st.download_button(
-                                    label="💾 Pobierz Excel",
-                                    data=output,
-                                    file_name=f"{safe_filename}.xlsx",
-                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                    key=f"download_{table_name}",
-                                    use_container_width=True
-                                )
-            
-            # Option to download all as single Excel file with multiple sheets
-            st.divider()
+            # Tile panel for downloads inside an expander
+            with st.expander("📥 Lista arkuszy — kliknij, aby rozwinąć"): 
+                st.write("Kliknij przycisk przy wybranym arkuszu, aby pobrać go jako plik Excel.")
+
+                # Search bar to filter sheets (case-insensitive)
+                if 'download_search' not in st.session_state:
+                    st.session_state['download_search'] = ''
+
+                st.text_input(
+                    "🔎 Szukaj arkusza",
+                    key='download_search',
+                    placeholder="🔎 Wpisz część nazwy elektrowni lub rok, np. Bełchatów 2024"
+                )
+
+                search_query = st.session_state.get('download_search', '')
+
+                # Create tiles in a grid layout
+                num_cols = 3
+                tables_list = list(power_plant_pivot_tables.items())
+
+                # Apply search filter
+                if search_query:
+                    q = search_query.strip().lower()
+                    tables_list = [t for t in tables_list if q in t[0].lower()]
+
+                if not tables_list:
+                    st.info("Brak arkuszy pasujących do zapytania wyszukiwania.")
+
+                for i in range(0, len(tables_list), num_cols):
+                    cols = st.columns(num_cols)
+                    for j in range(num_cols):
+                        if i + j < len(tables_list):
+                            table_name, table_info = tables_list[i + j]
+                            pivot_df = table_info['data']
+                            aggregation_label = table_info['aggregation']
+
+                            with cols[j]:
+                                # Create a card-like container
+                                with st.container(border=True):
+                                    st.write(f"**{table_name}**")
+                                    st.caption(f"📊 {len(pivot_df):,} rekordów")
+                                    st.caption(f"⏱️ Interwał: {aggregation_label}")
+
+                                    # Export button
+                                    output = io.BytesIO()
+                                    pivot_df.write_excel(output)
+                                    output.seek(0)
+
+                                    safe_filename = table_name.replace("/", "_").replace("\\", "_").replace(":", "_")
+                                    st.download_button(
+                                        label="💾 Pobierz Excel",
+                                        data=output,
+                                        file_name=f"{safe_filename}.xlsx",
+                                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                        key=f"download_{table_name}",
+                                        use_container_width=True
+                                    )
+
+
             st.subheader("📦 Pobierz wszystkie arkusze")
-            
+
             if st.button("📦 Przygotuj wszystkie tabele jako jeden plik Excel", help="Utwórz plik Excel ze wszystkimi tabelami na osobnych arkuszach"):
                 with st.spinner("Tworzę plik Excel ze wszystkimi tabelami..."):
                     import xlsxwriter
                     import numpy as np
-                    
+
                     output_all = io.BytesIO()
                     workbook = xlsxwriter.Workbook(output_all, {'in_memory': True, 'nan_inf_to_errors': True})
-                    
+
                     for table_name, table_info in power_plant_pivot_tables.items():
                         pivot_df = table_info['data']
                         # Sanitize sheet name (Excel has 31 char limit and some char restrictions)
                         sheet_name = table_name[:31].replace("/", "_").replace("\\", "_").replace(":", "_").replace("*", "_").replace("?", "_").replace("[", "_").replace("]", "_")
-                        
+
                         # Convert to pandas for xlsxwriter compatibility
                         pandas_df = pivot_df.to_pandas()
-                        
+
                         # Write to worksheet
                         worksheet = workbook.add_worksheet(sheet_name)
-                        
+
                         # Write headers
                         for col_num, col_name in enumerate(pandas_df.columns):
                             worksheet.write(0, col_num, col_name)
-                        
+
                         # Write data, handling NaN/Inf values
                         for row_num, row_data in enumerate(pandas_df.values, start=1):
                             for col_num, value in enumerate(row_data):
@@ -824,12 +844,12 @@ def main():
                                         worksheet.write(row_num, col_num, value)
                                 else:
                                     worksheet.write(row_num, col_num, value)
-                    
+
                     workbook.close()
                     output_all.seek(0)
                     st.session_state.excel_export = output_all.getvalue()
-                    st.success(f"✓ Plik Excel gotowy z {len(power_plant_pivot_tables)} arkuszami")
-                    
+                    st.success(f"✓ Przygotowano plik Excel z {len(power_plant_pivot_tables)} arkuszami")
+
             if 'excel_export' in st.session_state:
                 st.download_button(
                     label=f"💾 Pobierz wszystkie tabele (Excel)",
