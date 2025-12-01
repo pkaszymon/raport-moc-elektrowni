@@ -547,23 +547,39 @@ def main():
         st.divider()
         st.subheader("📊 Podgląd i przygotowanie danych")
         
+        # Determine if data spans multiple years
+        df_with_year = df.with_columns([
+            pl.col("dtime").str.slice(0, 4).alias("year")
+        ])
+        unique_years = df_with_year.select(pl.col("year").unique()).to_series().to_list()
+        unique_years = sorted([y for y in unique_years if y is not None])
+        has_multiple_years = len(unique_years) > 1
+        
         # Aggregation options
-        col_agg, col_split = st.columns(2)
+        if has_multiple_years:
+            col_agg, col_split = st.columns(2)
+        else:
+            col_agg = st.container()
         
         with col_agg:
-            aggregation_interval = st.selectbox(
+            aggregation_interval = st.radio(
                 "Interwał agregacji danych",
                 options=[AGGREGATION_15_MIN, AGGREGATION_HOURLY, AGGREGATION_DAILY],
                 index=1,  # Default to hourly
+                horizontal=True,
                 help="Wybierz interwał czasowy dla agregacji danych"
             )
         
-        with col_split:
-            split_by_year = st.checkbox(
-                "Podziel dane według roku",
-                value=False,
-                help="Podziel dane na osobne tabele dla każdego roku (np. Bełchatów 2023, Bełchatów 2024)"
-            )
+        # Show year split option only if data spans multiple years
+        if has_multiple_years:
+            with col_split:
+                split_by_year = st.checkbox(
+                    "Podziel dane według roku",
+                    value=False,
+                    help="Podziel dane na osobne tabele dla każdego roku (np. Bełchatów 2023, Bełchatów 2024)"
+                )
+        else:
+            split_by_year = False
         
         # Get unique power plants
         unique_power_plants = df.select(pl.col("power_plant").unique()).to_series().to_list()
