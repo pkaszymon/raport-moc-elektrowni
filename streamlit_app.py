@@ -57,10 +57,9 @@ def sanitize_filename(name: str, max_length: int = None) -> str:
         name: The string to sanitize. Empty strings are allowed and will return
               an empty string after sanitization.
         max_length: Optional maximum length to truncate to (useful for Excel sheet names).
-                    Note: Truncation uses simple string slicing [:max_length], which may
-                    split multi-byte Unicode characters. However, Python's string slicing
-                    operates on Unicode code points, not bytes, so it will not corrupt
-                    the string—it will simply truncate at the character boundary.
+                    Note: Truncation uses simple string slicing [:max_length], which
+                    operates on Unicode code points and will cleanly truncate at character
+                    boundaries without corrupting multi-byte characters.
     
     Returns:
         Sanitized string safe for use as filename or sheet name. Returns empty string
