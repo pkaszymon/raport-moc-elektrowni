@@ -455,8 +455,7 @@ def main():
                     if detection_result['new_mapping']:
                         alert_message += "**Mapowanie elektrowni do nowych kodów jednostek:**\n"
                         for plant, codes in detection_result['new_mapping'].items():
-                            if codes:
-                                alert_message += f"- **{plant}**: {', '.join(codes)}\n"
+                            alert_message += f"- **{plant}**: {', '.join(codes)}\n"
                         alert_message += "\n"
                     
                     alert_message += "📧 **Skontaktuj się z administratorem aplikacji** w celu zaktualizowania filtrów w kodzie aplikacji."

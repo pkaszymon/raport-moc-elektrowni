@@ -401,14 +401,16 @@ def detect_new_labels(data: List[Dict[str, Any]]) -> Dict[str, Any]:
     new_power_plants = sorted(list(data_power_plants - known_power_plants))
     new_resource_codes = sorted(list(data_resource_codes - known_resource_codes))
     
-    # Build mapping of new power plants to their new resource codes
+    # Build mapping of power plants to their new resource codes
     new_mapping = {}
+    
+    # Add new power plants with all their resource codes
     for plant in new_power_plants:
-        if plant in data_mapping:
+        if plant in data_mapping and data_mapping[plant]:
             # Get all resource codes for this new plant
             new_mapping[plant] = sorted(list(data_mapping[plant]))
     
-    # Also check if existing power plants have new resource codes
+    # Add existing power plants that have new resource codes
     for plant in known_power_plants:
         if plant in data_mapping:
             known_resources_for_plant = set(POWER_PLANT_TO_RESOURCES.get(plant, []))
