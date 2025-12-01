@@ -43,6 +43,34 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def sanitize_filename(name: str, max_length: int = None) -> str:
+    """
+    Sanitize a string to be safe for use as a filename or Excel sheet name.
+    
+    Replaces characters that are invalid in filenames or Excel sheet names:
+    / \ : * ? [ ]
+    
+    Args:
+        name: The string to sanitize
+        max_length: Optional maximum length to truncate to (useful for Excel sheet names)
+    
+    Returns:
+        Sanitized string safe for use as filename or sheet name
+    """
+    sanitized = name
+    for char in ['/', '\\', ':', '*', '?', '[', ']']:
+        sanitized = sanitized.replace(char, '_')
+    
+    if max_length is not None:
+        sanitized = sanitized[:max_length]
+    
+    return sanitized
+
+
+# ============================================================================
 # STREAMLIT APP
 # ============================================================================
 
@@ -610,18 +638,15 @@ def main():
             elif aggregation_interval == AGGREGATION_HOURLY:
                 # Hourly aggregation
                 plant_df = plant_df.with_columns([
-                    (pl.col("dtime").str.slice(11, 2).str.zfill(2) + ":00 - " + 
+                    (pl.col("dtime").str.slice(11, 2).str.zfill(2) + ":00 - " +
                         ((pl.col("dtime").str.slice(11, 2).cast(pl.Int32) + 1) % 24)
-                        .cast(pl.Utf8).str.zfill(2) + ":00").alias("hour")
-                ])
-                plant_df = plant_df.with_columns([
-                    (pl.col("date") + " " + pl.col("hour")).alias("period")
+                        .cast(pl.Utf8).str.zfill(2) + ":00").alias("period")
                 ])
                 time_label = "godzinowy"
             else:  # AGGREGATION_DAILY
                 # Daily aggregation
                 plant_df = plant_df.with_columns([
-                    pl.col("date").alias("period")
+                    (pl.lit("00:00-23:59")).alias("period")
                 ])
                 time_label = "dzienny"
             
@@ -638,6 +663,42 @@ def main():
                     break
             
             if value_col:
+                # Helper function to create pivot table
+                def create_pivot_table(data_df, value_column, agg_interval):
+                    """
+                    Create a pivot table from the provided DataFrame, aggregating values as appropriate.
+
+                    Parameters:
+                        data_df (pl.DataFrame): The input data containing time-series values.
+                        value_column (str): The name of the column containing values to aggregate.
+                        agg_interval (str): The aggregation interval; one of AGGREGATION_15_MIN, AGGREGATION_HOURLY, or AGGREGATION_DAILY.
+
+                    Returns:
+                        pl.DataFrame: A pivot table sorted by 'date' and 'period', with resource codes as columns.
+
+                    Behavior:
+                        - If agg_interval == AGGREGATION_15_MIN, no aggregation is performed; the first value for each interval is used.
+                        - If agg_interval is AGGREGATION_HOURLY or AGGREGATION_DAILY, values are aggregated using the mean for each interval.
+                    """
+                    if agg_interval == AGGREGATION_15_MIN:
+                        # No aggregation for 15-minute intervals
+                        pivot = data_df.pivot(
+                            values=value_column,
+                            index=["date", "period"],
+                            on="resource_code",
+                            aggregate_function="first"
+                        )
+                    else:
+                        # Use mean for hourly and daily aggregations
+                        pivot = data_df.pivot(
+                            values=value_column,
+                            index=["date", "period"],
+                            on="resource_code",
+                            aggregate_function="mean"
+                        )
+                    # Sort by date and period
+                    return pivot.sort(["date", "period"])
+                
                 if split_by_year:
                     # Split by year
                     unique_years = plant_df.select(pl.col("year").unique()).to_series().to_list()
@@ -645,27 +706,7 @@ def main():
                     
                     for year in unique_years:
                         year_df = plant_df.filter(pl.col("year") == year)
-                        
-                        # Create pivot table
-                        if aggregation_interval == AGGREGATION_15_MIN:
-                            # No aggregation for 15-minute intervals
-                            pivot_df = year_df.pivot(
-                                values=value_col,
-                                index=["date", "period"],
-                                on="resource_code",
-                                aggregate_function="first"
-                            )
-                        else:
-                            # Use mean for hourly and daily aggregations
-                            pivot_df = year_df.pivot(
-                                values=value_col,
-                                index=["date", "period"],
-                                on="resource_code",
-                                aggregate_function="mean"
-                            )
-                        
-                        # Sort by date and period
-                        pivot_df = pivot_df.sort(["date", "period"])
+                        pivot_df = create_pivot_table(year_df, value_col, aggregation_interval)
                         
                         table_name = f"{power_plant} {year}"
                         power_plant_pivot_tables[table_name] = {
@@ -675,25 +716,7 @@ def main():
                         }
                 else:
                     # No year split - all data together
-                    if aggregation_interval == AGGREGATION_15_MIN:
-                        # No aggregation for 15-minute intervals
-                        pivot_df = plant_df.pivot(
-                            values=value_col,
-                            index=["date", "period"],
-                            on="resource_code",
-                            aggregate_function="first"
-                        )
-                    else:
-                        # Use mean for hourly and daily aggregations
-                        pivot_df = plant_df.pivot(
-                            values=value_col,
-                            index=["date", "period"],
-                            on="resource_code",
-                            aggregate_function="mean"
-                        )
-                    
-                    # Sort by date and period
-                    pivot_df = pivot_df.sort(["date", "period"])
+                    pivot_df = create_pivot_table(plant_df, value_col, aggregation_interval)
                     
                     power_plant_pivot_tables[power_plant] = {
                         'data': pivot_df,
@@ -797,7 +820,7 @@ def main():
                                     pivot_df.write_excel(output)
                                     output.seek(0)
 
-                                    safe_filename = table_name.replace("/", "_").replace("\\", "_").replace(":", "_")
+                                    safe_filename = sanitize_filename(table_name)
                                     st.download_button(
                                         label="💾 Pobierz Excel",
                                         data=output,
@@ -821,7 +844,7 @@ def main():
                     for table_name, table_info in power_plant_pivot_tables.items():
                         pivot_df = table_info['data']
                         # Sanitize sheet name (Excel has 31 char limit and some char restrictions)
-                        sheet_name = table_name[:31].replace("/", "_").replace("\\", "_").replace(":", "_").replace("*", "_").replace("?", "_").replace("[", "_").replace("]", "_")
+                        sheet_name = sanitize_filename(table_name, max_length=31)
 
                         # Convert to pandas for xlsxwriter compatibility
                         pandas_df = pivot_df.to_pandas()
