@@ -70,6 +70,19 @@ def sanitize_filename(name: str, max_length: int = None) -> str:
     return sanitized
 
 
+def extract_year_expr() -> pl.Expr:
+    """
+    Create a Polars expression to extract the year from a 'dtime' column.
+    
+    Expects 'dtime' to be in ISO 8601 format (e.g., '2024-01-15T12:30:00Z').
+    Extracts the first 4 characters which represent the year.
+    
+    Returns:
+        Polars expression that extracts year from 'dtime' column
+    """
+    return pl.col("dtime").str.slice(0, 4).alias("year")
+
+
 # ============================================================================
 # STREAMLIT APP
 # ============================================================================
@@ -577,7 +590,7 @@ def main():
         
         # Determine if data spans multiple years
         df_with_year = df.with_columns([
-            pl.col("dtime").str.slice(0, 4).alias("year")
+            extract_year_expr()
         ])
         unique_years = df_with_year.select(pl.col("year").unique()).to_series().to_list()
         unique_years = sorted([y for y in unique_years if y is not None])
@@ -625,7 +638,7 @@ def main():
             # Extract date from dtime
             plant_df = plant_df.with_columns([
                 pl.col("dtime").str.slice(0, 10).alias("date"),
-                pl.col("dtime").str.slice(0, 4).alias("year")
+                extract_year_expr()
             ])
             
             # Determine grouping based on aggregation interval
