@@ -47,18 +47,23 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 def sanitize_filename(name: str, max_length: int = None) -> str:
-    """
+    r"""
     Sanitize a string to be safe for use as a filename or Excel sheet name.
     
     Replaces characters that are invalid in filenames or Excel sheet names:
     / \ : * ? [ ]
     
     Args:
-        name: The string to sanitize
-        max_length: Optional maximum length to truncate to (useful for Excel sheet names)
+        name: The string to sanitize. Empty strings are allowed and will return
+              an empty string after sanitization.
+        max_length: Optional maximum length to truncate to (useful for Excel sheet names).
+                    Note: Truncation uses simple string slicing [:max_length], which
+                    operates on Unicode code points and will cleanly truncate at character
+                    boundaries without corrupting multi-byte characters.
     
     Returns:
-        Sanitized string safe for use as filename or sheet name
+        Sanitized string safe for use as filename or sheet name. Returns empty string
+        if input is empty.
     """
     sanitized = name
     for char in ['/', '\\', ':', '*', '?', '[', ']']:
