@@ -32,11 +32,6 @@ FILTER_TYPE_ALL = "Wszystkie dane"
 FILTER_TYPE_BY_POWER_PLANT = "Według elektrowni"
 FILTER_TYPE_BY_RESOURCE_CODE = "Według kodów jednostek"
 
-# Aggregation interval constants
-AGGREGATION_15_MIN = "15 minut"
-AGGREGATION_HOURLY = "1 godzina"
-AGGREGATION_DAILY = "1 dzień"
-
 # Power plant to resource code mapping
 POWER_PLANT_TO_RESOURCES = {
     "Bełchatów": ["BEL 2-02", "BEL 2-03", "BEL 2-04", "BEL 2-05", "BEL 4-06", "BEL 4-07", "BEL 4-08", "BEL 4-09", "BEL 4-10", "BEL 4-11", "BEL 4-12", "BEL 4-14"],
