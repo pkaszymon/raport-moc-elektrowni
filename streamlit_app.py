@@ -128,6 +128,42 @@ def format_daily_period_expr() -> pl.Expr:
     return pl.lit("00:00-23:59").alias("period")
 
 
+def create_pivot_table(data_df: pl.DataFrame, value_column: str, agg_interval: str) -> pl.DataFrame:
+    """
+    Create a pivot table from the provided DataFrame, aggregating values as appropriate.
+
+    Parameters:
+        data_df (pl.DataFrame): The input data containing time-series values.
+        value_column (str): The name of the column containing values to aggregate.
+        agg_interval (str): The aggregation interval; one of AGGREGATION_15_MIN, AGGREGATION_HOURLY, or AGGREGATION_DAILY.
+
+    Returns:
+        pl.DataFrame: A pivot table sorted by 'date' and 'period', with resource codes as columns.
+
+    Behavior:
+        - If agg_interval == AGGREGATION_15_MIN, no aggregation is performed; the first value for each interval is used.
+        - If agg_interval is AGGREGATION_HOURLY or AGGREGATION_DAILY, values are aggregated using the mean for each interval.
+    """
+    if agg_interval == AGGREGATION_15_MIN:
+        # No aggregation for 15-minute intervals
+        pivot = data_df.pivot(
+            values=value_column,
+            index=["date", "period"],
+            on="resource_code",
+            aggregate_function="first"
+        )
+    else:
+        # Use mean for hourly and daily aggregations
+        pivot = data_df.pivot(
+            values=value_column,
+            index=["date", "period"],
+            on="resource_code",
+            aggregate_function="mean"
+        )
+    # Sort by date and period
+    return pivot.sort(["date", "period"])
+
+
 # ============================================================================
 # STREAMLIT APP
 # ============================================================================
@@ -719,42 +755,6 @@ def main():
                     break
             
             if value_col:
-                # Helper function to create pivot table
-                def create_pivot_table(data_df, value_column, agg_interval):
-                    """
-                    Create a pivot table from the provided DataFrame, aggregating values as appropriate.
-
-                    Parameters:
-                        data_df (pl.DataFrame): The input data containing time-series values.
-                        value_column (str): The name of the column containing values to aggregate.
-                        agg_interval (str): The aggregation interval; one of AGGREGATION_15_MIN, AGGREGATION_HOURLY, or AGGREGATION_DAILY.
-
-                    Returns:
-                        pl.DataFrame: A pivot table sorted by 'date' and 'period', with resource codes as columns.
-
-                    Behavior:
-                        - If agg_interval == AGGREGATION_15_MIN, no aggregation is performed; the first value for each interval is used.
-                        - If agg_interval is AGGREGATION_HOURLY or AGGREGATION_DAILY, values are aggregated using the mean for each interval.
-                    """
-                    if agg_interval == AGGREGATION_15_MIN:
-                        # No aggregation for 15-minute intervals
-                        pivot = data_df.pivot(
-                            values=value_column,
-                            index=["date", "period"],
-                            on="resource_code",
-                            aggregate_function="first"
-                        )
-                    else:
-                        # Use mean for hourly and daily aggregations
-                        pivot = data_df.pivot(
-                            values=value_column,
-                            index=["date", "period"],
-                            on="resource_code",
-                            aggregate_function="mean"
-                        )
-                    # Sort by date and period
-                    return pivot.sort(["date", "period"])
-                
                 if split_by_year:
                     # Split by year
                     unique_years = plant_df.select(pl.col("year").unique()).to_series().to_list()
