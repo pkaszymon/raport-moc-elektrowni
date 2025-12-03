@@ -88,6 +88,46 @@ def extract_year_expr() -> pl.Expr:
     return pl.col("dtime").str.slice(0, 4).alias("year")
 
 
+def extract_date_expr() -> pl.Expr:
+    """
+    Create a Polars expression to extract the date from a 'dtime' column.
+    
+    Expects 'dtime' to be in ISO 8601 format (e.g., '2024-01-15 12:30:00').
+    Extracts the first 10 characters which represent the date (YYYY-MM-DD).
+    
+    Returns:
+        Polars expression that extracts date from 'dtime' column
+    """
+    return pl.col("dtime").str.slice(0, 10).alias("date")
+
+
+def format_hourly_period_expr() -> pl.Expr:
+    """
+    Create a Polars expression to format an hourly period range from 'dtime' column.
+    
+    Expects 'dtime' to be in ISO 8601 format (e.g., '2024-01-15 12:30:00').
+    Extracts the hour and formats it as "HH:00 - HH:00" (e.g., "12:00 - 13:00").
+    
+    Returns:
+        Polars expression that formats hourly period from 'dtime' column
+    """
+    return (pl.col("dtime").str.slice(11, 2).str.zfill(2) + ":00 - " +
+            ((pl.col("dtime").str.slice(11, 2).cast(pl.Int32) + 1) % 24)
+            .cast(pl.Utf8).str.zfill(2) + ":00").alias("period")
+
+
+def format_daily_period_expr() -> pl.Expr:
+    """
+    Create a Polars expression for a daily period constant.
+    
+    Returns a constant "00:00-23:59" representing a full day period.
+    
+    Returns:
+        Polars expression that creates a daily period constant
+    """
+    return pl.lit("00:00-23:59").alias("period")
+
+
 # ============================================================================
 # STREAMLIT APP
 # ============================================================================
@@ -642,7 +682,7 @@ def main():
             
             # Extract date from dtime
             plant_df = plant_df.with_columns([
-                pl.col("dtime").str.slice(0, 10).alias("date"),
+                extract_date_expr(),
                 extract_year_expr()
             ])
             
@@ -656,15 +696,13 @@ def main():
             elif aggregation_interval == AGGREGATION_HOURLY:
                 # Hourly aggregation
                 plant_df = plant_df.with_columns([
-                    (pl.col("dtime").str.slice(11, 2).str.zfill(2) + ":00 - " +
-                        ((pl.col("dtime").str.slice(11, 2).cast(pl.Int32) + 1) % 24)
-                        .cast(pl.Utf8).str.zfill(2) + ":00").alias("period")
+                    format_hourly_period_expr()
                 ])
                 time_label = "godzinowy"
             else:  # AGGREGATION_DAILY
                 # Daily aggregation
                 plant_df = plant_df.with_columns([
-                    (pl.lit("00:00-23:59")).alias("period")
+                    format_daily_period_expr()
                 ])
                 time_label = "dzienny"
             
