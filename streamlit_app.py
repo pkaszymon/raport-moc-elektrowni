@@ -307,7 +307,7 @@ def main():
         
         # Reset button
         if st.button("🔄 Wyczyść pobrane dane", use_container_width=True):
-            for key in ["all_data", "current_page", "next_link", "min_dtime", "max_dtime", "query_params"]:
+            for key in ["all_data", "current_page", "next_link", "min_dtime", "max_dtime", "query_params", "new_labels_warning"]:
                 if key in st.session_state:
                     del st.session_state[key]
             st.success("Dane zostały wyczyszczone")
@@ -329,6 +329,8 @@ def main():
         st.session_state.max_dtime = None
     if "query_params" not in st.session_state:
         st.session_state.query_params = None
+    if "new_labels_warning" not in st.session_state:
+        st.session_state.new_labels_warning = None
     
     # ========================================================================
     # Main Content: Metrics & Controls
@@ -386,6 +388,10 @@ def main():
         f"**Wybrany okres:** {start_date.isoformat()} → {end_date.isoformat()} "
         f"({(end_date - start_date).days + 1} dni)"
     )
+    
+    # Display new labels warning if it exists in session state
+    if st.session_state.new_labels_warning:
+        st.warning(st.session_state.new_labels_warning)
 
     # ========================================================================
     # Data Fetching Controls
@@ -406,6 +412,7 @@ def main():
             st.session_state.min_dtime = None
             st.session_state.max_dtime = None
             st.session_state.query_params = current_query
+            st.session_state.new_labels_warning = None
         
         has_more_pages = st.session_state.current_page == 0 or st.session_state.next_link is not None
         
@@ -585,7 +592,8 @@ def main():
                     
                     alert_message += "📧 **Skontaktuj się z administratorem aplikacji** w celu zaktualizowania filtrów w kodzie aplikacji."
                     
-                    st.warning(alert_message)
+                    # Store the warning in session state so it persists after rerun
+                    st.session_state.new_labels_warning = alert_message
             
             st.rerun()
     
