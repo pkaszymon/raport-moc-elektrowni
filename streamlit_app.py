@@ -79,7 +79,7 @@ def extract_year_expr() -> pl.Expr:
     """
     Create a Polars expression to extract the year from a 'dtime' column.
     
-    Expects 'dtime' to be in ISO 8601 format (e.g., '2024-01-15T12:30:00Z').
+    Expects 'dtime' to be in ISO 8601 format (e.g., '2024-01-15 12:30:00').
     Extracts the first 4 characters which represent the year.
     
     Returns:
