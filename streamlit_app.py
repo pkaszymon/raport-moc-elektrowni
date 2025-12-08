@@ -829,7 +829,7 @@ def main():
             st.subheader("📥 Pliki Excel dla poszczególnych elektrowni")
             
             # Tile panel for downloads inside an expander
-            with st.expander("📥 Lista arkuszy — kliknij, aby rozwinąć"): 
+            with st.expander("📥 Lista arkuszy—kliknij, aby rozwinąć"): 
                 st.write("Kliknij przycisk przy wybranym arkuszu, aby pobrać go jako plik Excel.")
 
                 # Search bar to filter sheets (case-insensitive)
