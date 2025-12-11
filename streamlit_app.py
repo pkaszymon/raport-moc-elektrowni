@@ -36,7 +36,8 @@ from pse_api import (
     FILTER_TYPE_BY_RESOURCE_CODE,
     AGGREGATION_15_MIN,
     AGGREGATION_HOURLY,
-    AGGREGATION_DAILY
+    AGGREGATION_DAILY,
+    PARALLEL_DOWNLOAD_THRESHOLD
 )
 
 # Configure logging
@@ -448,8 +449,8 @@ def main():
                 # Resource code filter or no filter - use sequential approach
                 target_power_plants = []
             
-            # Check if we should use parallel download (expected entries > 400,000)
-            use_parallel = expected_intervals > 400000 and len(target_power_plants) > 0
+            # Check if we should use parallel download (expected entries > PARALLEL_DOWNLOAD_THRESHOLD)
+            use_parallel = expected_intervals > PARALLEL_DOWNLOAD_THRESHOLD and len(target_power_plants) > 0
             
             if use_parallel:
                 # ============================================================
@@ -457,7 +458,7 @@ def main():
                 # ============================================================
                 status_placeholder.info(
                     f"⏳ Rozpoczynam pobieranie równoległe dla {len(target_power_plants)} elektrowni...\n\n"
-                    f"Oczekiwana liczba rekordów: {expected_intervals:,} (>{400000:,})"
+                    f"Oczekiwana liczba rekordów: {expected_intervals:,} (>{PARALLEL_DOWNLOAD_THRESHOLD:,})"
                 )
                 
                 # Track progress for each power plant

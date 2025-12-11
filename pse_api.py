@@ -12,6 +12,7 @@ from datetime import datetime, date
 from typing import Optional, List, Dict, Any, Callable
 import logging
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -27,6 +28,8 @@ RETRY_BACKOFF_MULTIPLIER = 2
 MIN_RETRY_DELAY = 1  # seconds
 DEFAULT_PAGE_SIZE = 100000  # Max records per request
 MAX_WARNING_LOGS = 5  # Max number of malformed datetime warnings to log
+PARALLEL_DOWNLOAD_THRESHOLD = 400000  # Threshold for switching to parallel download mode
+MAX_PARALLEL_WORKERS = 15  # Maximum number of concurrent threads for parallel downloads
 
 # Filter type constants
 FILTER_TYPE_ALL = "Wszystkie dane"
@@ -454,7 +457,7 @@ def fetch_multiple_power_plants_parallel(
     progress_callback: Optional[Callable[[Dict[str, float]], None]] = None
 ) -> tuple[List[Dict[str, Any]], Dict[str, bool]]:
     """
-    Fetch data for multiple power plants in parallel using threads.
+    Fetch data for multiple power plants in parallel using a thread pool.
     
     Args:
         power_plants: List of power plant names to fetch
@@ -476,14 +479,29 @@ def fetch_multiple_power_plants_parallel(
     error_dict = {}
     error_lock = threading.Lock()
     
+    # Track last progress update time to batch updates
+    last_progress_update = [time.time()]  # Use list to allow modification in nested function
+    
     def fetch_and_store(plant: str):
         """Thread worker function to fetch data for one power plant."""
         def plant_progress_callback(pct: float):
             """Update progress for this specific power plant."""
+            current_time = time.time()
+            should_update = False
+            
             with progress_lock:
                 progress_dict[plant] = pct
-                if progress_callback:
-                    progress_callback(progress_dict.copy())
+                # Batch progress updates - only send every 0.5 seconds or when complete
+                if pct >= 0.99 or (current_time - last_progress_update[0]) >= 0.5:
+                    should_update = True
+                    last_progress_update[0] = current_time
+            
+            # Call progress callback outside the lock to prevent deadlocks
+            if should_update and progress_callback:
+                # Create a snapshot of current progress
+                with progress_lock:
+                    progress_snapshot = progress_dict.copy()
+                progress_callback(progress_snapshot)
         
         records, error = fetch_power_plant_data(
             power_plant=plant,
@@ -498,17 +516,27 @@ def fetch_multiple_power_plants_parallel(
         
         with error_lock:
             error_dict[plant] = error
+        
+        return plant, len(records), error
     
-    # Create and start threads
-    threads = []
-    for plant in power_plants:
-        thread = threading.Thread(target=fetch_and_store, args=(plant,))
-        thread.start()
-        threads.append(thread)
+    # Use ThreadPoolExecutor to limit concurrent threads
+    max_workers = min(MAX_PARALLEL_WORKERS, len(power_plants))
+    logger.info(f"Starting parallel fetch for {len(power_plants)} power plants with {max_workers} workers")
     
-    # Wait for all threads to complete
-    for thread in threads:
-        thread.join()
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all tasks
+        futures = {executor.submit(fetch_and_store, plant): plant for plant in power_plants}
+        
+        # Wait for completion
+        for future in as_completed(futures):
+            plant = futures[future]
+            try:
+                plant_name, record_count, had_error = future.result()
+                logger.info(f"Completed {plant_name}: {record_count} records, error={had_error}")
+            except Exception as e:
+                logger.error(f"Exception fetching data for {plant}: {e}")
+                with error_lock:
+                    error_dict[plant] = True
     
     logger.info(f"Completed parallel fetch for {len(power_plants)} power plants: {len(all_records)} total records")
     return all_records, error_dict
