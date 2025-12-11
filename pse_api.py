@@ -73,6 +73,7 @@ POWER_PLANT_TO_RESOURCES = {
     "Zielona Góra": ["ZGR22S01"],
     "Łagisza": ["LGA 4-10"],
     "Łaziska 3": ["LZA31-09", "LZA31-10", "LZA32-11", "LZA32-12"],
+    "Zwartowo": ["ZWA_1P03"],
     "Żarnowiec": ["ZRN_4-01", "ZRN_4-02", "ZRN_4-03", "ZRN_4-04"],
 }
 
@@ -91,7 +92,7 @@ ALL_RESOURCE_CODES = [
     "SIA 1-01", "SIA 1-02", "SNA11S03", "SNA22S05", "SNA22S06", "STW42S12", "TUR 1-01", "TUR 2-02",
     "TUR 2-03", "TUR 2-04", "TUR 2-05", "TUR 2-06", "TUR 4-11", "WLC_2S01", "WROB1-02", "WROB1-03",
     "WSIB1-07", "WSIB1-08", "WSIB1-09", "WSIB1-10", "WZE22-20", "WZE22S20", "ZGR22S01", "ZRN_4-01",
-    "ZRN_4-02", "ZRN_4-03", "ZRN_4-04"
+    "ZRN_4-02", "ZRN_4-03", "ZRN_4-04", "ZWA_1P03"
 ]
 
 
