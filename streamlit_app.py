@@ -25,6 +25,8 @@ from pse_api import (
     calculate_time_coverage,
     calculate_expected_intervals,
     detect_new_labels,
+    fetch_power_plant_data,
+    fetch_multiple_power_plants_parallel,
     PSE_API_BASE_URL,
     MAX_RETRIES,
     POWER_PLANT_TO_RESOURCES,
@@ -347,11 +349,21 @@ def main():
         )
     
     with col2:
-        st.metric(
-            "📄 Pobrano w częściach",
-            st.session_state.current_page,
-            help="Ilość części na jakie dane zostały podzielone w celu ułatwienia pobierania"
-        )
+        # Calculate download progress percentage
+        if st.session_state.all_data and expected_intervals > 0:
+            current_records = len(st.session_state.all_data)
+            download_progress_pct = min((current_records / expected_intervals) * 100, 100)
+            st.metric(
+                "📊 Postęp pobierania",
+                f"{download_progress_pct:.1f}%",
+                help="Procent oczekiwanych danych, które zostały już pobrane"
+            )
+        else:
+            st.metric(
+                "📊 Postęp pobierania",
+                "0.0%",
+                help="Procent oczekiwanych danych, które zostały już pobrane"
+            )
     
     with col3:
         if st.session_state.min_dtime:
@@ -425,143 +437,253 @@ def main():
             status_placeholder = st.empty()
             progress_bar = st.progress(0)
             
-            continue_fetching = True
+            # Determine which power plants to fetch
+            if filter_type == FILTER_TYPE_BY_POWER_PLANT and selected_power_plants:
+                # User selected specific power plants
+                target_power_plants = selected_power_plants
+            elif filter_type == FILTER_TYPE_ALL:
+                # Fetch all power plants
+                target_power_plants = list(POWER_PLANT_TO_RESOURCES.keys())
+            else:
+                # Resource code filter or no filter - use sequential approach
+                target_power_plants = []
             
-            while continue_fetching:
-                # Determine if this is the first request
-                is_first_request = st.session_state.current_page == 0
-                
-                status_placeholder.info(f"⏳ Pobieram dane, część {st.session_state.current_page + 1}...")
-                
-                if is_first_request:
-                    # Build initial query parameters
-                    filter_param = (
-                        f"business_date ge '{start_date.isoformat()}' and "
-                        f"business_date le '{end_date.isoformat()}'"
-                    )
-                    
-                    # Add power plant filter if specific power plants are selected
-                    if selected_power_plants:
-                        if len(selected_power_plants) == 1:
-                            filter_param += f" and power_plant eq '{selected_power_plants[0]}'"
-                        else:
-                            # Build an 'or' condition for multiple power plants
-                            plant_conditions = " or ".join([f"power_plant eq '{plant}'" for plant in selected_power_plants])
-                            filter_param += f" and ({plant_conditions})"
-                    
-                    # Add resource code filter if specific resources are selected
-                    elif selected_resources:
-                        if len(selected_resources) == 1:
-                            filter_param += f" and resource_code eq '{selected_resources[0]}'"
-                        else:
-                            # Build an 'or' condition for multiple resources
-                            resource_conditions = " or ".join([f"resource_code eq '{code}'" for code in selected_resources])
-                            filter_param += f" and ({resource_conditions})"
-                    
-                    orderby_param = "business_date asc,resource_code asc,operating_mode asc,dtime_utc asc"
-                    params = {
-                        "$filter": filter_param,
-                        "$orderby": orderby_param,
-                        "$first": str(page_size)
-                    }
-                    url = PSE_API_BASE_URL
-                else:
-                    # Use the stored nextLink URL
-                    url = st.session_state.next_link
-                    params = None
-                
-                # Fetch single page
-                data, next_link, error_occurred = fetch_pse_page(
-                    url=url,
-                    params=params,
-                    is_first_request=is_first_request
+            # Check if we should use parallel download (expected entries > 400,000)
+            use_parallel = expected_intervals > 400000 and len(target_power_plants) > 0
+            
+            if use_parallel:
+                # ============================================================
+                # PARALLEL DOWNLOAD MODE (for large datasets with power plants)
+                # ============================================================
+                status_placeholder.info(
+                    f"⏳ Rozpoczynam pobieranie równoległe dla {len(target_power_plants)} elektrowni...\n\n"
+                    f"Oczekiwana liczba rekordów: {expected_intervals:,} (>{400000:,})"
                 )
                 
-                logger.info(f"Next link after fetch: {next_link}")
-                logger.info(f"Data keys: {data.keys() if data else 'No data'}")
-                logger.info(f"Logical value of data: {bool(data)}")
-                logger.debug(f"Error occurred: {error_occurred}")
-
-                if error_occurred:
-                    # Request failed after all retries - show error and stop
+                # Track progress for each power plant
+                power_plant_progress = {plant: 0.0 for plant in target_power_plants}
+                
+                def parallel_progress_callback(progress_dict: dict):
+                    """Update progress based on arithmetic mean of all power plants."""
+                    # Calculate arithmetic mean of all power plant progresses
+                    if progress_dict:
+                        mean_progress = sum(progress_dict.values()) / len(progress_dict)
+                        progress_bar.progress(mean_progress)
+                        
+                        # Update status with detailed breakdown
+                        completed = sum(1 for p in progress_dict.values() if p >= 0.99)
+                        status_text = (
+                            f"⏳ Pobieranie równoległe: {mean_progress*100:.1f}% ukończone\n\n"
+                            f"Elektrownie ukończone: {completed}/{len(target_power_plants)}\n\n"
+                        )
+                        
+                        # Show individual progress for first few plants
+                        sorted_plants = sorted(progress_dict.items(), key=lambda x: x[1], reverse=True)
+                        for i, (plant, pct) in enumerate(sorted_plants[:5]):
+                            status_icon = "✅" if pct >= 0.99 else "⏳"
+                            status_text += f"{status_icon} {plant}: {pct*100:.1f}%\n"
+                        
+                        if len(target_power_plants) > 5:
+                            status_text += f"... i {len(target_power_plants) - 5} więcej\n"
+                        
+                        status_placeholder.info(status_text)
+                
+                # Fetch data in parallel
+                all_records, error_dict = fetch_multiple_power_plants_parallel(
+                    power_plants=target_power_plants,
+                    start_date=start_date,
+                    end_date=end_date,
+                    page_size=page_size,
+                    progress_callback=parallel_progress_callback
+                )
+                
+                # Check for errors
+                errors = [plant for plant, had_error in error_dict.items() if had_error]
+                
+                if errors:
                     status_placeholder.error(
-                        f"❌ **Nie udało się pobrać danych**\n\n"
-                        f"Żądanie nie powiodło się po {MAX_RETRIES} próbach. Możliwe przyczyny:\n"
-                        "- Problem z połączeniem internetowym\n"
-                        "- Serwer PSE nie odpowiada\n"
-                        "- Przekroczono limit czasu połączenia\n\n"
-                        "💡 **Spróbuj ponownie:** Kliknij przycisk 'Pobierz dane' aby ponowić próbę."
+                        f"❌ **Błędy podczas pobierania danych**\n\n"
+                        f"Nie udało się pobrać danych dla {len(errors)} elektrowni:\n" +
+                        "\n".join([f"- {plant}" for plant in errors[:10]]) +
+                        (f"\n... i {len(errors) - 10} więcej" if len(errors) > 10 else "") +
+                        f"\n\nPobrano {len(all_records):,} rekordów z {len(target_power_plants) - len(errors)} elektrowni."
                     )
-                    continue_fetching = False
-                elif data:
-                    records = data.get("value", [])
-                    st.session_state.all_data.extend(records)
-                    st.session_state.next_link = next_link
-                    st.session_state.current_page += 1
-
-                    logger.info(f"Updated session state: current_page={st.session_state.current_page}, next_link={st.session_state.next_link}")
-
-                    # Update dtime tracking
+                else:
+                    progress_bar.progress(1.0)
+                    status_placeholder.success(
+                        f"✅ **Pobieranie równoległe ukończone!**\n\n"
+                        f"Pobrano {len(all_records):,} rekordów z {len(target_power_plants)} elektrowni"
+                    )
+                
+                # Store results in session state
+                st.session_state.all_data = all_records
+                st.session_state.current_page = 1  # Mark as fetched
+                st.session_state.next_link = None
+                
+                # Update min/max dtime
+                if all_records:
                     dtime_values = [
                         item.get("dtime") or item.get("dtime_utc")
-                        for item in records
+                        for item in all_records
                         if item.get("dtime") or item.get("dtime_utc")
                     ]
-                    
-                    logger.info(f"dtime values count: {len(dtime_values)}")
-                    
                     if dtime_values:
-                        current_min = min(dtime_values)
-                        current_max = max(dtime_values)
-                        
-                        # Update min/max across all pages
-                        if st.session_state.min_dtime is None or current_min < st.session_state.min_dtime:
-                            st.session_state.min_dtime = current_min
-                        if st.session_state.max_dtime is None or current_max > st.session_state.max_dtime:
-                            st.session_state.max_dtime = current_max
-
-                    logger.info(f"Session min_dtime: {st.session_state.min_dtime}, max_dtime: {st.session_state.max_dtime}")
-
-                    # Update progress bar based on time coverage
-                    start_dt = datetime.combine(start_date, datetime.min.time())
-                    end_dt = datetime.combine(end_date, datetime.max.time())
-                    logger.info(f"Calculating time coverage between {start_dt} and {end_dt}")
-                    progress_pct, _, _ = calculate_time_coverage(
-                        st.session_state.all_data,
-                        start_dt,
-                        end_dt
-                    )
-                    logger.info(f"Progress percentage: {progress_pct*100:.1f}%")
-                    progress_bar.progress(progress_pct)
+                        st.session_state.min_dtime = min(dtime_values)
+                        st.session_state.max_dtime = max(dtime_values)
+                
+            else:
+                # ============================================================
+                # SEQUENTIAL DOWNLOAD MODE (for smaller datasets or resource code filters)
+                # ============================================================
+                continue_fetching = True
+                
+                while continue_fetching:
+                    # Determine if this is the first request
+                    is_first_request = st.session_state.current_page == 0
                     
-                    status_placeholder.success(
-                        f"✅ Część {st.session_state.current_page}: {len(records):,} rekordów | "
-                        f"Łącznie: {len(st.session_state.all_data):,} | Pokrycie: {progress_pct*100:.1f}%"
-                    )
-                    
-                    # Check if we should continue
-                    if not next_link:
-                        status_placeholder.success(f"✓ Ukończono! Pobrano {len(st.session_state.all_data):,} rekordów w {st.session_state.current_page} częściach")
-                        continue_fetching = False
-                    elif st.session_state.max_dtime:
-                        logger.info(f"Checking if lastest dtime {st.session_state.max_dtime} reaches end date {end_date}")
-                        latest_dt_obj = datetime.strptime(
-                            st.session_state.max_dtime,
-                            "%Y-%m-%d %H:%M:%S"
+                    # Calculate and display progress as percentage
+                    if st.session_state.all_data:
+                        start_dt = datetime.combine(start_date, datetime.min.time())
+                        end_dt = datetime.combine(end_date, datetime.max.time())
+                        progress_pct, _, _ = calculate_time_coverage(
+                            st.session_state.all_data,
+                            start_dt,
+                            end_dt
                         )
-                        if latest_dt_obj.date() >= end_date:
-                            logger.info(f"Latest dtime {latest_dt_obj.date()} is greater than or equal to end date {end_date}")
-                            progress_bar.progress(1.0)
-                            status_placeholder.success(f"✓ Pobrano wszystkie dane! Łącznie {len(st.session_state.all_data):,} rekordów")
-                            continue_fetching = False
-                else:
-                    # Unexpected case: data is None but no error occurred
-                    status_placeholder.error(
-                        "❌ **Nieoczekiwany błąd**\n\n"
-                        "Wystąpił nieoczekiwany problem podczas pobierania danych.\n\n"
-                        "💡 **Spróbuj ponownie:** Kliknij przycisk 'Pobierz dane' aby ponowić próbę."
+                        status_placeholder.info(f"⏳ Pobieram dane: {progress_pct*100:.1f}% ukończone...")
+                    else:
+                        status_placeholder.info(f"⏳ Pobieram dane: 0.0% ukończone...")
+                    
+                    if is_first_request:
+                        # Build initial query parameters
+                        filter_param = (
+                            f"business_date ge '{start_date.isoformat()}' and "
+                            f"business_date le '{end_date.isoformat()}'"
+                        )
+                        
+                        # Add power plant filter if specific power plants are selected
+                        if selected_power_plants:
+                            if len(selected_power_plants) == 1:
+                                filter_param += f" and power_plant eq '{selected_power_plants[0]}'"
+                            else:
+                                # Build an 'or' condition for multiple power plants
+                                plant_conditions = " or ".join([f"power_plant eq '{plant}'" for plant in selected_power_plants])
+                                filter_param += f" and ({plant_conditions})"
+                        
+                        # Add resource code filter if specific resources are selected
+                        elif selected_resources:
+                            if len(selected_resources) == 1:
+                                filter_param += f" and resource_code eq '{selected_resources[0]}'"
+                            else:
+                                # Build an 'or' condition for multiple resources
+                                resource_conditions = " or ".join([f"resource_code eq '{code}'" for code in selected_resources])
+                                filter_param += f" and ({resource_conditions})"
+                        
+                        orderby_param = "business_date asc,resource_code asc,operating_mode asc,dtime_utc asc"
+                        params = {
+                            "$filter": filter_param,
+                            "$orderby": orderby_param,
+                            "$first": str(page_size)
+                        }
+                        url = PSE_API_BASE_URL
+                    else:
+                        # Use the stored nextLink URL
+                        url = st.session_state.next_link
+                        params = None
+                    
+                    # Fetch single page
+                    data, next_link, error_occurred = fetch_pse_page(
+                        url=url,
+                        params=params,
+                        is_first_request=is_first_request
                     )
-                    continue_fetching = False
+                    
+                    logger.info(f"Next link after fetch: {next_link}")
+                    logger.info(f"Data keys: {data.keys() if data else 'No data'}")
+                    logger.info(f"Logical value of data: {bool(data)}")
+                    logger.debug(f"Error occurred: {error_occurred}")
+
+                    if error_occurred:
+                        # Request failed after all retries - show error and stop
+                        status_placeholder.error(
+                            f"❌ **Nie udało się pobrać danych**\n\n"
+                            f"Żądanie nie powiodło się po {MAX_RETRIES} próbach. Możliwe przyczyny:\n"
+                            "- Problem z połączeniem internetowym\n"
+                            "- Serwer PSE nie odpowiada\n"
+                            "- Przekroczono limit czasu połączenia\n\n"
+                            "💡 **Spróbuj ponownie:** Kliknij przycisk 'Pobierz dane' aby ponowić próbę."
+                        )
+                        continue_fetching = False
+                    elif data:
+                        records = data.get("value", [])
+                        st.session_state.all_data.extend(records)
+                        st.session_state.next_link = next_link
+                        st.session_state.current_page += 1
+
+                        logger.info(f"Updated session state: current_page={st.session_state.current_page}, next_link={st.session_state.next_link}")
+
+                        # Update dtime tracking
+                        dtime_values = [
+                            item.get("dtime") or item.get("dtime_utc")
+                            for item in records
+                            if item.get("dtime") or item.get("dtime_utc")
+                        ]
+                        
+                        logger.info(f"dtime values count: {len(dtime_values)}")
+                        
+                        if dtime_values:
+                            current_min = min(dtime_values)
+                            current_max = max(dtime_values)
+                            
+                            # Update min/max across all pages
+                            if st.session_state.min_dtime is None or current_min < st.session_state.min_dtime:
+                                st.session_state.min_dtime = current_min
+                            if st.session_state.max_dtime is None or current_max > st.session_state.max_dtime:
+                                st.session_state.max_dtime = current_max
+
+                        logger.info(f"Session min_dtime: {st.session_state.min_dtime}, max_dtime: {st.session_state.max_dtime}")
+
+                        # Update progress bar based on time coverage
+                        start_dt = datetime.combine(start_date, datetime.min.time())
+                        end_dt = datetime.combine(end_date, datetime.max.time())
+                        logger.info(f"Calculating time coverage between {start_dt} and {end_dt}")
+                        progress_pct, _, _ = calculate_time_coverage(
+                            st.session_state.all_data,
+                            start_dt,
+                            end_dt
+                        )
+                        logger.info(f"Progress percentage: {progress_pct*100:.1f}%")
+                        progress_bar.progress(progress_pct)
+                        
+                        status_placeholder.success(
+                            f"✅ Postęp: {progress_pct*100:.1f}% | "
+                            f"{len(records):,} rekordów w tej porcji | "
+                            f"Łącznie: {len(st.session_state.all_data):,}"
+                        )
+                        
+                        # Check if we should continue
+                        if not next_link:
+                            status_placeholder.success(f"✓ Ukończono! Pobrano {len(st.session_state.all_data):,} rekordów")
+                            continue_fetching = False
+                        elif st.session_state.max_dtime:
+                            logger.info(f"Checking if lastest dtime {st.session_state.max_dtime} reaches end date {end_date}")
+                            latest_dt_obj = datetime.strptime(
+                                st.session_state.max_dtime,
+                                "%Y-%m-%d %H:%M:%S"
+                            )
+                            if latest_dt_obj.date() >= end_date:
+                                logger.info(f"Latest dtime {latest_dt_obj.date()} is greater than or equal to end date {end_date}")
+                                progress_bar.progress(1.0)
+                                status_placeholder.success(f"✓ Pobrano wszystkie dane! Łącznie {len(st.session_state.all_data):,} rekordów")
+                                continue_fetching = False
+                    else:
+                        # Unexpected case: data is None but no error occurred
+                        status_placeholder.error(
+                            "❌ **Nieoczekiwany błąd**\n\n"
+                            "Wystąpił nieoczekiwany problem podczas pobierania danych.\n\n"
+                            "💡 **Spróbuj ponownie:** Kliknij przycisk 'Pobierz dane' aby ponowić próbę."
+                        )
+                        continue_fetching = False
             
             # Check for new labels when fetching all data without filters
             if filter_type == FILTER_TYPE_ALL and st.session_state.all_data:

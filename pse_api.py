@@ -9,8 +9,9 @@ import requests
 import json
 import time
 from datetime import datetime, date
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Callable
 import logging
+import threading
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -356,6 +357,161 @@ def calculate_expected_intervals(
     
     # Expected measurements = time intervals * number of resources
     return time_intervals * num_resources
+
+
+def fetch_power_plant_data(
+    power_plant: str,
+    start_date: date,
+    end_date: date,
+    page_size: int = DEFAULT_PAGE_SIZE,
+    progress_callback: Optional[Callable[[float], None]] = None
+) -> tuple[List[Dict[str, Any]], bool]:
+    """
+    Fetch all data for a single power plant within a date range.
+    
+    Args:
+        power_plant: Name of the power plant to fetch
+        start_date: Start date
+        end_date: End date
+        page_size: Records per page (max 100000)
+        progress_callback: Optional callback function(progress_percentage) for progress updates
+    
+    Returns:
+        Tuple of (records_list, error_occurred)
+        - records_list: List of all records for this power plant
+        - error_occurred: True if request failed after all retries, False otherwise
+    """
+    # Build initial query parameters
+    filter_param = (
+        f"business_date ge '{start_date.isoformat()}' and "
+        f"business_date le '{end_date.isoformat()}' and "
+        f"power_plant eq '{power_plant}'"
+    )
+    
+    orderby_param = "business_date asc,resource_code asc,operating_mode asc,dtime_utc asc"
+    params = {
+        "$filter": filter_param,
+        "$orderby": orderby_param,
+        "$first": str(page_size)
+    }
+    
+    all_records = []
+    current_url = PSE_API_BASE_URL
+    is_first_request = True
+    
+    # Calculate expected time span for progress tracking
+    start_dt = datetime.combine(start_date, datetime.min.time())
+    end_dt = datetime.combine(end_date, datetime.max.time())
+    
+    while current_url:
+        # Fetch current page
+        data, next_link, error_occurred = fetch_pse_page(
+            url=current_url,
+            params=params if is_first_request else None,
+            is_first_request=is_first_request
+        )
+        
+        if error_occurred:
+            logger.error(f"Failed to fetch data for power plant: {power_plant}")
+            return all_records, True
+        
+        if data:
+            records = data.get("value", [])
+            all_records.extend(records)
+            
+            # Calculate progress based on time coverage
+            if progress_callback and all_records:
+                progress_pct, _, _ = calculate_time_coverage(
+                    all_records,
+                    start_dt,
+                    end_dt
+                )
+                progress_callback(progress_pct)
+            
+            # Check for next page
+            if next_link:
+                current_url = next_link
+                is_first_request = False
+            else:
+                # No more pages - set progress to 100%
+                if progress_callback:
+                    progress_callback(1.0)
+                current_url = None
+        else:
+            # Unexpected case: data is None but no error occurred
+            logger.error(f"Unexpected error fetching data for power plant: {power_plant}")
+            return all_records, True
+    
+    logger.info(f"Completed fetching {len(all_records)} records for power plant: {power_plant}")
+    return all_records, False
+
+
+def fetch_multiple_power_plants_parallel(
+    power_plants: List[str],
+    start_date: date,
+    end_date: date,
+    page_size: int = DEFAULT_PAGE_SIZE,
+    progress_callback: Optional[Callable[[Dict[str, float]], None]] = None
+) -> tuple[List[Dict[str, Any]], Dict[str, bool]]:
+    """
+    Fetch data for multiple power plants in parallel using threads.
+    
+    Args:
+        power_plants: List of power plant names to fetch
+        start_date: Start date
+        end_date: End date
+        page_size: Records per page (max 100000)
+        progress_callback: Optional callback function(progress_dict) for progress updates.
+                          progress_dict is {power_plant: progress_percentage}
+    
+    Returns:
+        Tuple of (all_records, error_dict)
+        - all_records: Combined list of all records from all power plants
+        - error_dict: Dictionary mapping power_plant to error_occurred boolean
+    """
+    all_records = []
+    records_lock = threading.Lock()
+    progress_dict = {plant: 0.0 for plant in power_plants}
+    progress_lock = threading.Lock()
+    error_dict = {}
+    error_lock = threading.Lock()
+    
+    def fetch_and_store(plant: str):
+        """Thread worker function to fetch data for one power plant."""
+        def plant_progress_callback(pct: float):
+            """Update progress for this specific power plant."""
+            with progress_lock:
+                progress_dict[plant] = pct
+                if progress_callback:
+                    progress_callback(progress_dict.copy())
+        
+        records, error = fetch_power_plant_data(
+            power_plant=plant,
+            start_date=start_date,
+            end_date=end_date,
+            page_size=page_size,
+            progress_callback=plant_progress_callback
+        )
+        
+        with records_lock:
+            all_records.extend(records)
+        
+        with error_lock:
+            error_dict[plant] = error
+    
+    # Create and start threads
+    threads = []
+    for plant in power_plants:
+        thread = threading.Thread(target=fetch_and_store, args=(plant,))
+        thread.start()
+        threads.append(thread)
+    
+    # Wait for all threads to complete
+    for thread in threads:
+        thread.join()
+    
+    logger.info(f"Completed parallel fetch for {len(power_plants)} power plants: {len(all_records)} total records")
+    return all_records, error_dict
 
 
 def detect_new_labels(data: List[Dict[str, Any]]) -> Dict[str, Any]:
