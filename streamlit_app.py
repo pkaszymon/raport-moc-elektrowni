@@ -37,7 +37,8 @@ from pse_api import (
     AGGREGATION_15_MIN,
     AGGREGATION_HOURLY,
     AGGREGATION_DAILY,
-    PARALLEL_DOWNLOAD_THRESHOLD
+    PARALLEL_DOWNLOAD_THRESHOLD,
+    PROGRESS_COMPLETION_THRESHOLD
 )
 
 # Configure logging
@@ -449,8 +450,9 @@ def main():
                 # Resource code filter or no filter - use sequential approach
                 target_power_plants = []
             
-            # Check if we should use parallel download (expected entries > PARALLEL_DOWNLOAD_THRESHOLD)
-            use_parallel = expected_intervals > PARALLEL_DOWNLOAD_THRESHOLD and len(target_power_plants) > 0
+            # Check if we should use parallel download
+            # Requires: expected entries > threshold AND at least 2 power plants (parallel has no benefit for 1 plant)
+            use_parallel = expected_intervals > PARALLEL_DOWNLOAD_THRESHOLD and len(target_power_plants) > 1
             
             if use_parallel:
                 # ============================================================
@@ -481,7 +483,7 @@ def main():
                         # Show individual progress for first few plants
                         sorted_plants = sorted(progress_dict.items(), key=lambda x: x[1], reverse=True)
                         for i, (plant, pct) in enumerate(sorted_plants[:5]):
-                            status_icon = "✅" if pct >= 0.99 else "⏳"
+                            status_icon = "✅" if pct >= PROGRESS_COMPLETION_THRESHOLD else "⏳"
                             status_text += f"{status_icon} {plant}: {pct*100:.1f}%\n"
                         
                         if len(target_power_plants) > 5:

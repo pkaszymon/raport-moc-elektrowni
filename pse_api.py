@@ -30,6 +30,8 @@ DEFAULT_PAGE_SIZE = 100000  # Max records per request
 MAX_WARNING_LOGS = 5  # Max number of malformed datetime warnings to log
 PARALLEL_DOWNLOAD_THRESHOLD = 400000  # Threshold for switching to parallel download mode
 MAX_PARALLEL_WORKERS = 15  # Maximum number of concurrent threads for parallel downloads
+PROGRESS_COMPLETION_THRESHOLD = 0.99  # Progress percentage considered as completion
+PROGRESS_UPDATE_INTERVAL = 0.5  # Minimum interval (seconds) between progress updates
 
 # Filter type constants
 FILTER_TYPE_ALL = "Wszystkie dane"
@@ -491,8 +493,8 @@ def fetch_multiple_power_plants_parallel(
             
             with progress_lock:
                 progress_dict[plant] = pct
-                # Batch progress updates - only send every 0.5 seconds or when complete
-                if pct >= 0.99 or (current_time - last_progress_update[0]) >= 0.5:
+                # Batch progress updates - only send every PROGRESS_UPDATE_INTERVAL seconds or when complete
+                if pct >= PROGRESS_COMPLETION_THRESHOLD or (current_time - last_progress_update[0]) >= PROGRESS_UPDATE_INTERVAL:
                     should_update = True
                     last_progress_update[0] = current_time
             
