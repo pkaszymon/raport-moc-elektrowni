@@ -209,5 +209,43 @@ class TestDetectNewLabels:
         assert known_code not in result['new_resource_codes']
 
 
+class TestParallelDownload:
+    """Test suite for parallel download functions."""
+    
+    def test_imports(self):
+        """Test that new functions can be imported."""
+        from pse_api import fetch_power_plant_data, fetch_multiple_power_plants_parallel
+        assert fetch_power_plant_data is not None
+        assert fetch_multiple_power_plants_parallel is not None
+    
+    def test_fetch_power_plant_data_signature(self):
+        """Test that fetch_power_plant_data has the correct signature."""
+        from pse_api import fetch_power_plant_data
+        import inspect
+        
+        sig = inspect.signature(fetch_power_plant_data)
+        params = list(sig.parameters.keys())
+        
+        assert 'power_plant' in params
+        assert 'start_date' in params
+        assert 'end_date' in params
+        assert 'page_size' in params
+        assert 'progress_callback' in params
+    
+    def test_fetch_multiple_power_plants_parallel_signature(self):
+        """Test that fetch_multiple_power_plants_parallel has the correct signature."""
+        from pse_api import fetch_multiple_power_plants_parallel
+        import inspect
+        
+        sig = inspect.signature(fetch_multiple_power_plants_parallel)
+        params = list(sig.parameters.keys())
+        
+        assert 'power_plants' in params
+        assert 'start_date' in params
+        assert 'end_date' in params
+        assert 'page_size' in params
+        assert 'progress_callback' in params
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
