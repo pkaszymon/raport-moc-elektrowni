@@ -390,10 +390,6 @@ def main():
                 if key != "query_params":  # Skip query_params as we set it to the new value below
                     st.session_state[key] = default_value
             st.session_state.query_params = current_query
-            st.session_state.new_labels_warning = None
-            st.session_state.current_progress = 0.0
-            st.session_state.current_period = 0
-            st.session_state.total_periods = 0
         
         has_more_pages = st.session_state.current_page == 0 or st.session_state.next_link is not None
         
