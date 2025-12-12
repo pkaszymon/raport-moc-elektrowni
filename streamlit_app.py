@@ -76,7 +76,6 @@ def sanitize_filename(name: str, max_length: int = None) -> str:
     
     return sanitized
 
-
 def extract_year_expr() -> pl.Expr:
     """
     Create a Polars expression to extract the year from a 'dtime' column.
@@ -170,6 +169,8 @@ def create_pivot_table(data_df: pl.DataFrame, value_column: str, agg_interval: s
 # STREAMLIT APP
 # ============================================================================
 
+page_size = 100000  # Default page size for API requests
+
 def main():
     st.set_page_config(
         page_title="Dane generatorów PSE",
@@ -262,29 +263,8 @@ def main():
     with st.sidebar:
         st.header("⚙️ Ustawienia zaawansowane")
         
-        
-        
-        # Page size configuration
-        page_size = st.slider(
-            "Rozmiar porcji danych",
-            min_value=1000,
-            max_value=100000,
-            value=100000,
-            step=10000,
-            help="Ile rekordów pobrać za jednym razem. Maksimum to 100 000 - limit API PSE."
-        )
-        
-        st.info(
-            "ℹ️ **Dlaczego pobieramy dane partiami?** \n\n"
-            "API PSE nie pozwala pobrać wszystkich danych naraz. "
-            "Maksymalnie można pobrać 100 000 rekordów na raz. "
-            "Dla większych okresów dane są pobierane w kilku \"porcjach\", "
-            "co pozwala na pobranie nawet bardzo dużych zbiorów danych. "
-            "Mniejsze porcje pozwalają śledzić postęp pobierania danych na bieżąco. 😊"
-        )
-        
         enable_cache = st.checkbox(
-            "Zapamiętaj pobrane dane",
+            "Użyj cache",
             value=True,
             help="Zapobiega ponownemu pobieraniu tych samych danych. UWAGA: Wyłącz tę opcję, jeśli chcesz zawsze ponownie pobierać dane z PSE."
         )
@@ -435,13 +415,10 @@ def main():
                 selected_resources
             )
             
-            # Show info about splitting if needed
-            if expected_entries > MAX_EXPECTED_ENTRIES:
-                status_placeholder.info(
-                    f"⏳ Oczekiwana liczba wpisów ({expected_entries:,}) przekracza próg ({MAX_EXPECTED_ENTRIES:,}). "
-                    f"Pobieranie zostanie podzielone na okresy 2-tygodniowe..."
-                )
-            
+            status_placeholder.info(
+                f"⏳ Postęp: {0*100:.0f}% | "
+                f"Pobrano: {0:,} rekordów"
+            )
             # Define progress callback
             def update_progress(progress_percentage, total_records, current_period, total_periods):
                 # Update session state
@@ -452,19 +429,11 @@ def main():
                 # Update progress bar
                 progress_bar.progress(progress_percentage)
                 
-                # Update status message
-                if total_periods > 1:
-                    status_placeholder.info(
-                        f"⏳ Pobieranie okres {current_period}/{total_periods} | "
-                        f"Postęp: {progress_percentage*100:.0f}% | "
-                        f"Pobrano: {total_records:,} rekordów"
-                    )
-                else:
-                    status_placeholder.info(
-                        f"⏳ Pobieranie danych | "
-                        f"Postęp: {progress_percentage*100:.0f}% | "
-                        f"Pobrano: {total_records:,} rekordów"
-                    )
+
+                status_placeholder.info(
+                    f"⏳ Postęp: {progress_percentage*100:.0f}% | "
+                    f"Pobrano: {total_records:,} rekordów"
+                )
             
             try:
                 # Fetch data using the auto-split dispatcher
@@ -497,7 +466,7 @@ def main():
                 
                 if st.session_state.total_periods > 1:
                     status_placeholder.success(
-                        f"✓ Ukończono! Pobrano {len(all_records):,} rekordów w {st.session_state.total_periods} okresach"
+                        f"✓ Ukończono! Pobrano {len(all_records):,} rekordów"
                     )
                 else:
                     status_placeholder.success(
@@ -881,10 +850,11 @@ def main():
                                 else:
                                     worksheet.write(row_num, col_num, value)
 
-                    workbook.close()
-                    output_all.seek(0)
-                    st.session_state.excel_export = output_all.getvalue()
-                    st.success(f"✓ Przygotowano plik Excel z {len(power_plant_pivot_tables)} arkuszami")
+                workbook.close()
+                output_all.seek(0)
+                st.session_state.excel_export = output_all.getvalue()
+                file_size_mb = len(st.session_state.excel_export) / (1024 * 1024)
+                st.success(f"✓ Przygotowano plik Excel z {len(power_plant_pivot_tables)} arkuszami ({file_size_mb:.2f} MB)")
 
             if 'excel_export' in st.session_state:
                 st.download_button(
