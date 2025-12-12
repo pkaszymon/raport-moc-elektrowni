@@ -8,8 +8,8 @@ Handles pagination, retry logic, and data processing.
 import requests
 import json
 import time
-from datetime import datetime, date
-from typing import Optional, List, Dict, Any
+from datetime import datetime, date, timedelta
+from typing import Optional, List, Dict, Any, Tuple
 import logging
 
 # Configure logging
@@ -385,7 +385,7 @@ def split_date_range_into_periods(
     start_date: date,
     end_date: date,
     period_days: int = 14
-) -> List[tuple[date, date]]:
+) -> List[Tuple[date, date]]:
     """
     Split a date range into smaller periods of specified length.
     
@@ -397,8 +397,6 @@ def split_date_range_into_periods(
     Returns:
         List of (start, end) date tuples for each period
     """
-    from datetime import timedelta
-    
     periods = []
     current_start = start_date
     
@@ -490,23 +488,16 @@ def fetch_pse_data_with_auto_split(
         # No splitting needed - fetch all data at once
         logger.info("Expected entries below threshold, fetching all data at once")
         
-        # Wrap the progress callback to convert to percentage format
-        def wrapped_progress_callback(page_count, total_records):
-            if progress_callback:
-                # For single-period fetch, we can't easily calculate percentage from page count
-                # So we'll just report 0.5 (50%) while fetching and 1.0 (100%) when done
-                progress_callback(0.5, total_records, 1, 1)
-        
         all_records = fetch_all_pse_data(
             start_date,
             end_date,
             page_size=page_size,
-            progress_callback=wrapped_progress_callback,
+            progress_callback=None,  # No intermediate progress for single fetch
             selected_power_plants=selected_power_plants,
             selected_resources=selected_resources
         )
         
-        # Final progress callback
+        # Final progress callback - report completion
         if progress_callback:
             progress_callback(1.0, len(all_records), 1, 1)
         

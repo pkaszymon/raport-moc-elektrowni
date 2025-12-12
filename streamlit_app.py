@@ -465,7 +465,6 @@ def main():
                 st.session_state.current_progress = progress_percentage
                 st.session_state.current_period = current_period
                 st.session_state.total_periods = total_periods
-                st.session_state.all_data = []  # Will be set after fetch completes
                 
                 # Update progress bar
                 progress_bar.progress(progress_percentage)
