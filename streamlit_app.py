@@ -391,6 +391,9 @@ def main():
                     st.session_state[key] = default_value
             st.session_state.query_params = current_query
             st.session_state.new_labels_warning = None
+            st.session_state.current_progress = 0.0
+            st.session_state.current_period = 0
+            st.session_state.total_periods = 0
         
         has_more_pages = st.session_state.current_page == 0 or st.session_state.next_link is not None
         
@@ -413,7 +416,7 @@ def main():
             )
             
             status_placeholder.info(
-                f"⏳ Postęp: {0:.0f}% | "
+                f"⏳ Postęp: {0*100:.0f}% | "
                 f"Pobrano: {0:,} rekordów"
             )
             # Define progress callback
