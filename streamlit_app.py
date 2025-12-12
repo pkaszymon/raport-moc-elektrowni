@@ -401,7 +401,8 @@ def main():
         if st.session_state.query_params != current_query:
             # Reset if query changed
             for key, default_value in SESSION_STATE_DEFAULTS.items():
-                st.session_state[key] = default_value
+                if key != "query_params":  # Skip query_params as we set it to the new value below
+                    st.session_state[key] = default_value
             st.session_state.query_params = current_query
         
         has_more_pages = st.session_state.current_page == 0 or st.session_state.next_link is not None
