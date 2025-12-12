@@ -416,7 +416,7 @@ def main():
             )
             
             status_placeholder.info(
-                f"⏳ Postęp: {0*100:.0f}% | "
+                f"⏳ Postęp: {0:.0f}% | "
                 f"Pobrano: {0:,} rekordów"
             )
             # Define progress callback
