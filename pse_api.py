@@ -8,8 +8,8 @@ Handles pagination, retry logic, and data processing.
 import requests
 import json
 import time
-from datetime import datetime, date
-from typing import Optional, List, Dict, Any
+from datetime import datetime, date, timedelta
+from typing import Optional, List, Dict, Any, Tuple
 import logging
 
 # Configure logging
@@ -26,6 +26,7 @@ RETRY_BACKOFF_MULTIPLIER = 2
 MIN_RETRY_DELAY = 1  # seconds
 DEFAULT_PAGE_SIZE = 100000  # Max records per request
 MAX_WARNING_LOGS = 5  # Max number of malformed datetime warnings to log
+MAX_EXPECTED_ENTRIES = 300000  # Max expected entries before splitting into smaller periods
 
 # Filter type constants
 FILTER_TYPE_ALL = "Wszystkie dane"
@@ -45,7 +46,7 @@ POWER_PLANT_TO_RESOURCES = {
     "EC Czechnica-2": ["CZN_1S01"],
     "EC Rzeszów": ["REC 1-01"],
     "EC Siekierki": ["WSIB1-07", "WSIB1-08", "WSIB1-09", "WSIB1-10"],
-    "EC Stalowa Wola": ["STW42S12"],
+    "EC Stalowa Wola": ["STW42-12", "STW42S12"],
     "EC Wrotków": ["LEC 1-01"],
     "EC Włocławek": ["WLC_2S01"],
     "EC Łódź-4": ["LD4 1-03"],
@@ -63,7 +64,7 @@ POWER_PLANT_TO_RESOURCES = {
     "Porąbka Żar": ["PZR 2-01", "PZR 2-02", "PZR 2-03", "PZR 2-04"],
     "Połaniec": ["POL_2S02", "POL_2S03", "POL_2S04", "POL_4S05", "POL_4S06", "POL_4S07"],
     "Połaniec 2-Pasywna": ["POL24S09"],
-    "Pątnów 2": ["PAT24S09"],
+    "Pątnów 2": ["PAT24-09", "PAT24S09"],
     "Płock": ["PLO_4S01"],
     "Rybnik": ["RYB 2-05", "RYB 2-06", "RYB 4-07", "RYB 4-08"],
     "Siersza": ["SIA 1-01", "SIA 1-02"],
@@ -73,6 +74,7 @@ POWER_PLANT_TO_RESOURCES = {
     "Zielona Góra": ["ZGR22S01"],
     "Łagisza": ["LGA 4-10"],
     "Łaziska 3": ["LZA31-09", "LZA31-10", "LZA32-11", "LZA32-12"],
+    "Zwartowo": ["ZWA_1P03"],
     "Żarnowiec": ["ZRN_4-01", "ZRN_4-02", "ZRN_4-03", "ZRN_4-04"],
 }
 
@@ -85,13 +87,13 @@ ALL_RESOURCE_CODES = [
     "KLE 1-02", "KLE 1-03", "KLE 1-04", "KOZ11S02", "KOZ11S06", "KOZ12S01", "KOZ12S03", "KOZ12S04",
     "KOZ12S05", "KOZ12S07", "KOZ12S08", "KOZ24S09", "KOZ24S10", "KOZ24S11", "LD4 1-03", "LEC 1-01",
     "LGA 4-10", "LZA31-09", "LZA31-10", "LZA32-11", "LZA32-12", "OPL 1-01", "OPL 1-02", "OPL 4-03",
-    "OPL 4-04", "OPL 4-05", "OPL 4-06", "OSB_1S03", "OSB_2S01", "OSB_2S02", "PAT24S09", "PLO_4S01",
+    "OPL 4-04", "OPL 4-05", "OPL 4-06", "OSB_1S03", "OSB_2S01", "OSB_2S02", "PAT24-09", "PAT24S09", "PLO_4S01",
     "POL24S09", "POL_2S02", "POL_2S03", "POL_2S04", "POL_4S05", "POL_4S06", "POL_4S07", "PZR 2-01",
     "PZR 2-02", "PZR 2-03", "PZR 2-04", "REC 1-01", "RYB 2-05", "RYB 2-06", "RYB 4-07", "RYB 4-08",
-    "SIA 1-01", "SIA 1-02", "SNA11S03", "SNA22S05", "SNA22S06", "STW42S12", "TUR 1-01", "TUR 2-02",
+    "SIA 1-01", "SIA 1-02", "SNA11S03", "SNA22S05", "SNA22S06", "STW42-12", "STW42S12", "TUR 1-01", "TUR 2-02",
     "TUR 2-03", "TUR 2-04", "TUR 2-05", "TUR 2-06", "TUR 4-11", "WLC_2S01", "WROB1-02", "WROB1-03",
     "WSIB1-07", "WSIB1-08", "WSIB1-09", "WSIB1-10", "WZE22-20", "WZE22S20", "ZGR22S01", "ZRN_4-01",
-    "ZRN_4-02", "ZRN_4-03", "ZRN_4-04"
+    "ZRN_4-02", "ZRN_4-03", "ZRN_4-04", "ZWA_1P03"
 ]
 
 
@@ -166,7 +168,9 @@ def fetch_all_pse_data(
     start_date: date,
     end_date: date,
     page_size: int = DEFAULT_PAGE_SIZE,
-    progress_callback=None
+    progress_callback=None,
+    selected_power_plants: Optional[List[str]] = None,
+    selected_resources: Optional[List[str]] = None
 ) -> List[Dict[str, Any]]:
     """
     Fetch all pages of PSE data for a given date range using pagination.
@@ -182,6 +186,8 @@ def fetch_all_pse_data(
         end_date: End date (YYYY-MM-DD format)
         page_size: Records per page (max 100000)
         progress_callback: Optional callback function(current_page, total_records) for progress updates
+        selected_power_plants: Optional list of power plants to filter by
+        selected_resources: Optional list of resource codes to filter by
     
     Returns:
         List of all records from all pages
@@ -191,6 +197,24 @@ def fetch_all_pse_data(
         f"business_date ge '{start_date.isoformat()}' and "
         f"business_date le '{end_date.isoformat()}'"
     )
+    
+    # Add power plant filter if specific power plants are selected
+    if selected_power_plants:
+        if len(selected_power_plants) == 1:
+            filter_param += f" and power_plant eq '{selected_power_plants[0]}'"
+        else:
+            # Build an 'or' condition for multiple power plants
+            plant_conditions = " or ".join([f"power_plant eq '{plant}'" for plant in selected_power_plants])
+            filter_param += f" and ({plant_conditions})"
+    
+    # Add resource code filter if specific resources are selected
+    elif selected_resources:
+        if len(selected_resources) == 1:
+            filter_param += f" and resource_code eq '{selected_resources[0]}'"
+        else:
+            # Build an 'or' condition for multiple resources
+            resource_conditions = " or ".join([f"resource_code eq '{code}'" for code in selected_resources])
+            filter_param += f" and ({resource_conditions})"
     
     # OData orderby: ensures consistent pagination across requests
     orderby_param = "business_date asc,resource_code asc,operating_mode asc,dtime_utc asc"
@@ -355,6 +379,129 @@ def calculate_expected_intervals(
     
     # Expected measurements = time intervals * number of resources
     return time_intervals * num_resources
+
+
+def split_date_range_into_periods(
+    start_date: date,
+    end_date: date,
+    period_days: int = 14
+) -> List[Tuple[date, date]]:
+    """
+    Split a date range into smaller periods of specified length.
+    
+    Args:
+        start_date: Start date of the range
+        end_date: End date of the range
+        period_days: Number of days per period (default 14 for 2 weeks)
+    
+    Returns:
+        List of (start, end) date tuples for each period
+    """
+    periods = []
+    current_start = start_date
+    
+    while current_start <= end_date:
+        current_end = min(current_start + timedelta(days=period_days - 1), end_date)
+        periods.append((current_start, current_end))
+        current_start = current_end + timedelta(days=1)
+    
+    return periods
+
+
+def fetch_pse_data_with_auto_split(
+    start_date: date,
+    end_date: date,
+    filter_type: str = FILTER_TYPE_ALL,
+    selected_power_plants: Optional[List[str]] = None,
+    selected_resources: Optional[List[str]] = None,
+    page_size: int = DEFAULT_PAGE_SIZE,
+    progress_callback=None
+) -> List[Dict[str, Any]]:
+    """
+    Fetch PSE data with automatic splitting into 2-week periods if expected entries exceed threshold.
+    
+    This dispatcher function:
+    1. Calculates expected number of entries for the full date range
+    2. If expected entries > MAX_EXPECTED_ENTRIES, splits into 2-week periods
+    3. Fetches data sequentially for each period
+    4. Provides progress updates as percentage of completion
+    
+    Args:
+        start_date: Start date
+        end_date: End date
+        filter_type: Type of filter (use FILTER_TYPE_* constants)
+        selected_power_plants: List of selected power plants (if filtering by power plant)
+        selected_resources: List of selected resource codes (if filtering by resource code)
+        page_size: Records per page (max 100000)
+        progress_callback: Optional callback function(progress_percentage, total_records, current_period, total_periods)
+    
+    Returns:
+        List of all records from all periods
+    """
+    # Calculate expected entries for the full range
+    expected_entries = calculate_expected_intervals(
+        start_date,
+        end_date,
+        filter_type,
+        selected_power_plants,
+        selected_resources
+    )
+    
+    logger.info(f"Expected entries: {expected_entries:,} (threshold: {MAX_EXPECTED_ENTRIES:,})")
+    
+    # Determine if we need to split the request
+    if expected_entries > MAX_EXPECTED_ENTRIES:
+        # Split into 2-week periods
+        periods = split_date_range_into_periods(start_date, end_date, period_days=14)
+        logger.info(f"Splitting request into {len(periods)} 2-week periods")
+        
+        all_records = []
+        total_periods = len(periods)
+        
+        for period_index, (period_start, period_end) in enumerate(periods, start=1):
+            logger.info(f"Fetching period {period_index}/{total_periods}: {period_start} to {period_end}")
+            
+            # Fetch data for this period
+            period_records = fetch_all_pse_data(
+                period_start,
+                period_end,
+                page_size=page_size,
+                progress_callback=None,  # We'll handle progress at this level
+                selected_power_plants=selected_power_plants,
+                selected_resources=selected_resources
+            )
+            
+            all_records.extend(period_records)
+            
+            # Calculate overall progress percentage
+            progress_percentage = period_index / total_periods
+            
+            # Call progress callback if provided
+            if progress_callback:
+                progress_callback(progress_percentage, len(all_records), period_index, total_periods)
+            
+            logger.info(f"Period {period_index}/{total_periods} completed: {len(period_records):,} records (Total: {len(all_records):,})")
+        
+        logger.info(f"All periods completed: {len(all_records):,} total records")
+        return all_records
+    else:
+        # No splitting needed - fetch all data at once
+        logger.info("Expected entries below threshold, fetching all data at once")
+        
+        all_records = fetch_all_pse_data(
+            start_date,
+            end_date,
+            page_size=page_size,
+            progress_callback=None,  # No intermediate progress for single fetch
+            selected_power_plants=selected_power_plants,
+            selected_resources=selected_resources
+        )
+        
+        # Final progress callback - report completion
+        if progress_callback:
+            progress_callback(1.0, len(all_records), 1, 1)
+        
+        return all_records
 
 
 def detect_new_labels(data: List[Dict[str, Any]]) -> Dict[str, Any]:
