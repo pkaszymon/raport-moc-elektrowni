@@ -45,24 +45,10 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
-# SESSION STATE KEYS
+# SESSION STATE CONFIGURATION
 # ============================================================================
-# Define session state keys as constants to ensure consistency across
-# initialization and cleanup operations
-SESSION_STATE_KEYS = {
-    "all_data",
-    "current_page",
-    "next_link",
-    "min_dtime",
-    "max_dtime",
-    "query_params",
-    "new_labels_warning",
-    "current_progress",
-    "current_period",
-    "total_periods"
-}
-
-# Default values for session state initialization
+# Define session state keys and their default values as a constant to ensure
+# consistency across initialization and cleanup operations
 SESSION_STATE_DEFAULTS = {
     "all_data": [],
     "current_page": 0,
@@ -305,7 +291,7 @@ def main():
         
         # Reset button
         if st.button("🔄 Wyczyść pobrane dane", use_container_width=True):
-            for key in SESSION_STATE_KEYS:
+            for key in SESSION_STATE_DEFAULTS.keys():
                 if key in st.session_state:
                     del st.session_state[key]
             st.success("Dane zostały wyczyszczone")
