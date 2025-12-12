@@ -45,6 +45,39 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
+# SESSION STATE KEYS
+# ============================================================================
+# Define session state keys as constants to ensure consistency across
+# initialization and cleanup operations
+SESSION_STATE_KEYS = {
+    "all_data",
+    "current_page",
+    "next_link",
+    "min_dtime",
+    "max_dtime",
+    "query_params",
+    "new_labels_warning",
+    "current_progress",
+    "current_period",
+    "total_periods"
+}
+
+# Default values for session state initialization
+SESSION_STATE_DEFAULTS = {
+    "all_data": [],
+    "current_page": 0,
+    "next_link": None,
+    "min_dtime": None,
+    "max_dtime": None,
+    "query_params": None,
+    "new_labels_warning": None,
+    "current_progress": 0.0,
+    "current_period": 0,
+    "total_periods": 0
+}
+
+
+# ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
 
@@ -272,7 +305,7 @@ def main():
         
         # Reset button
         if st.button("🔄 Wyczyść pobrane dane", use_container_width=True):
-            for key in ["all_data", "current_page", "next_link", "min_dtime", "max_dtime", "query_params", "new_labels_warning", "current_progress", "current_period", "total_periods"]:
+            for key in SESSION_STATE_KEYS:
                 if key in st.session_state:
                     del st.session_state[key]
             st.success("Dane zostały wyczyszczone")
@@ -282,26 +315,9 @@ def main():
     # Initialize Session State
     # ========================================================================
     
-    if "all_data" not in st.session_state:
-        st.session_state.all_data = []
-    if "current_page" not in st.session_state:
-        st.session_state.current_page = 0
-    if "next_link" not in st.session_state:
-        st.session_state.next_link = None
-    if "min_dtime" not in st.session_state:
-        st.session_state.min_dtime = None
-    if "max_dtime" not in st.session_state:
-        st.session_state.max_dtime = None
-    if "query_params" not in st.session_state:
-        st.session_state.query_params = None
-    if "new_labels_warning" not in st.session_state:
-        st.session_state.new_labels_warning = None
-    if "current_progress" not in st.session_state:
-        st.session_state.current_progress = 0.0
-    if "current_period" not in st.session_state:
-        st.session_state.current_period = 0
-    if "total_periods" not in st.session_state:
-        st.session_state.total_periods = 0
+    for key, default_value in SESSION_STATE_DEFAULTS.items():
+        if key not in st.session_state:
+            st.session_state[key] = default_value
     
     # ========================================================================
     # Main Content: Metrics & Controls
@@ -384,16 +400,9 @@ def main():
         current_query = f"{start_date.isoformat()}_{end_date.isoformat()}_{page_size}_{filter_type}_{selected_resources_str}_{selected_power_plants_str}"
         if st.session_state.query_params != current_query:
             # Reset if query changed
-            st.session_state.all_data = []
-            st.session_state.current_page = 0
-            st.session_state.next_link = None
-            st.session_state.min_dtime = None
-            st.session_state.max_dtime = None
+            for key, default_value in SESSION_STATE_DEFAULTS.items():
+                st.session_state[key] = default_value
             st.session_state.query_params = current_query
-            st.session_state.new_labels_warning = None
-            st.session_state.current_progress = 0.0
-            st.session_state.current_period = 0
-            st.session_state.total_periods = 0
         
         has_more_pages = st.session_state.current_page == 0 or st.session_state.next_link is not None
         
