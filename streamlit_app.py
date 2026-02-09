@@ -89,6 +89,13 @@ def sanitize_filename(name: str, max_length: int = None) -> str:
     
     return sanitized
 
+def clear_excel_export():
+    """
+    Callback to clear the Excel export from session state when filters change.
+    """
+    if 'excel_export' in st.session_state:
+        del st.session_state['excel_export']
+
 def table_matches_plant(table_name: str, plant_name: str) -> bool:
     """
     Check if a table name corresponds to the given power plant.
@@ -792,7 +799,8 @@ def main():
                     index=0,
                     horizontal=False,
                     help="Wybierz, które dane chcesz wyeksportować do pliku Excel",
-                    key="export_filter_type"
+                    key="export_filter_type",
+                    on_change=clear_excel_export
                 )
             
             with col_filter2:
@@ -802,7 +810,8 @@ def main():
                         options=unique_power_plants,
                         default=unique_power_plants,
                         help="Wybierz elektrownie, które chcesz uwzględnić w pliku Excel",
-                        key="selected_export_plants"
+                        key="selected_export_plants",
+                        on_change=clear_excel_export
                     )
                 elif export_filter_type == "Według kodów jednostek":
                     selected_export_resources = st.multiselect(
@@ -810,16 +819,14 @@ def main():
                         options=unique_resource_codes,
                         default=unique_resource_codes,
                         help="Wybierz kody jednostek, które chcesz uwzględnić w pliku Excel",
-                        key="selected_export_resources"
+                        key="selected_export_resources",
+                        on_change=clear_excel_export
                     )
 
             if st.button("📦 Przygotuj plik Excel z wybranymi danymi", help="Utwórz plik Excel ze wszystkimi tabelami na osobnych arkuszach"):
                 with st.spinner("Tworzę plik Excel ze wszystkimi tabelami..."):
                     import xlsxwriter
                     import numpy as np
-
-                    output_all = io.BytesIO()
-                    workbook = xlsxwriter.Workbook(output_all, {'in_memory': True, 'nan_inf_to_errors': True})
 
                     # Determine which tables to include based on filter
                     tables_to_export = {}
@@ -869,38 +876,45 @@ def main():
                                         'year': table_info.get('year')
                                     }
                     
-                    for table_name, table_info in tables_to_export.items():
-                        pivot_df = table_info['data']
-                        # Sanitize sheet name (Excel has 31 char limit and some char restrictions)
-                        sheet_name = sanitize_filename(table_name, max_length=31)
+                    # Check if there are any tables to export
+                    if not tables_to_export:
+                        st.warning("⚠️ Brak tabel spełniających kryteria filtrowania. Zmień ustawienia filtrów i spróbuj ponownie.")
+                    else:
+                        output_all = io.BytesIO()
+                        workbook = xlsxwriter.Workbook(output_all, {'in_memory': True, 'nan_inf_to_errors': True})
+                        
+                        for table_name, table_info in tables_to_export.items():
+                            pivot_df = table_info['data']
+                            # Sanitize sheet name (Excel has 31 char limit and some char restrictions)
+                            sheet_name = sanitize_filename(table_name, max_length=31)
 
-                        # Convert to pandas for xlsxwriter compatibility
-                        pandas_df = pivot_df.to_pandas()
+                            # Convert to pandas for xlsxwriter compatibility
+                            pandas_df = pivot_df.to_pandas()
 
-                        # Write to worksheet
-                        worksheet = workbook.add_worksheet(sheet_name)
+                            # Write to worksheet
+                            worksheet = workbook.add_worksheet(sheet_name)
 
-                        # Write headers
-                        for col_num, col_name in enumerate(pandas_df.columns):
-                            worksheet.write(0, col_num, col_name)
+                            # Write headers
+                            for col_num, col_name in enumerate(pandas_df.columns):
+                                worksheet.write(0, col_num, col_name)
 
-                        # Write data, handling NaN/Inf values
-                        for row_num, row_data in enumerate(pandas_df.values, start=1):
-                            for col_num, value in enumerate(row_data):
-                                # Handle NaN and Inf values
-                                if isinstance(value, (float, np.floating)):
-                                    if np.isnan(value) or np.isinf(value):
-                                        worksheet.write(row_num, col_num, None)  # Write empty cell
+                            # Write data, handling NaN/Inf values
+                            for row_num, row_data in enumerate(pandas_df.values, start=1):
+                                for col_num, value in enumerate(row_data):
+                                    # Handle NaN and Inf values
+                                    if isinstance(value, (float, np.floating)):
+                                        if np.isnan(value) or np.isinf(value):
+                                            worksheet.write(row_num, col_num, None)  # Write empty cell
+                                        else:
+                                            worksheet.write(row_num, col_num, value)
                                     else:
                                         worksheet.write(row_num, col_num, value)
-                                else:
-                                    worksheet.write(row_num, col_num, value)
 
-                workbook.close()
-                output_all.seek(0)
-                st.session_state.excel_export = output_all.getvalue()
-                file_size_mb = len(st.session_state.excel_export) / (1024 * 1024)
-                st.success(f"✓ Przygotowano plik Excel z {len(tables_to_export)} arkuszami ({file_size_mb:.2f} MB)")
+                        workbook.close()
+                        output_all.seek(0)
+                        st.session_state.excel_export = output_all.getvalue()
+                        file_size_mb = len(st.session_state.excel_export) / (1024 * 1024)
+                        st.success(f"✓ Przygotowano plik Excel z {len(tables_to_export)} arkuszami ({file_size_mb:.2f} MB)")
 
             if 'excel_export' in st.session_state:
                 st.download_button(
