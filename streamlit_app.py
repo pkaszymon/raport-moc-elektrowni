@@ -810,25 +810,42 @@ def main():
                     tables_to_export = {}
                     
                     if export_filter_type == "Wszystkie dane":
-                        # Export all tables
+                        # Export all tables with all columns
                         tables_to_export = power_plant_pivot_tables
                     elif export_filter_type == "Według elektrowni":
-                        # Filter by selected power plants
+                        # Filter by selected power plants - include all resource codes for those plants
                         for table_name, table_info in power_plant_pivot_tables.items():
                             if any(table_matches_plant(table_name, plant) for plant in selected_export_plants):
                                 tables_to_export[table_name] = table_info
                     elif export_filter_type == "Według kodów jednostek":
-                        # Filter by selected resource codes using dynamic mapping
+                        # Filter by selected resource codes - only include selected resource code columns
                         # Find which power plants have the selected resource codes
                         plants_with_selected_resources = set()
                         for plant, resources in plant_resource_dict.items():
                             if any(rc in selected_export_resources for rc in resources):
                                 plants_with_selected_resources.add(plant)
                         
-                        # Include tables for those power plants
+                        # Include tables for those power plants, but filter columns to only selected resource codes
                         for table_name, table_info in power_plant_pivot_tables.items():
                             if any(table_matches_plant(table_name, plant) for plant in plants_with_selected_resources):
-                                tables_to_export[table_name] = table_info
+                                # Filter the dataframe columns to only include selected resource codes
+                                pivot_df = table_info['data']
+                                all_columns = pivot_df.columns
+                                
+                                # Keep date/period columns and only selected resource codes
+                                columns_to_keep = ["date", "period"] + [
+                                    col for col in all_columns 
+                                    if col in selected_export_resources and col not in ["date", "period"]
+                                ]
+                                
+                                # Only include this table if it has at least one selected resource code
+                                if len(columns_to_keep) > 2:  # More than just date and period
+                                    filtered_df = pivot_df.select(columns_to_keep)
+                                    tables_to_export[table_name] = {
+                                        'data': filtered_df,
+                                        'aggregation': table_info['aggregation'],
+                                        'year': table_info.get('year')
+                                    }
                     
                     for table_name, table_info in tables_to_export.items():
                         pivot_df = table_info['data']
