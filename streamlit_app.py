@@ -93,7 +93,9 @@ def table_matches_plant(table_name: str, plant_name: str) -> bool:
     """
     Check if a table name corresponds to the given power plant.
     
-    Handles table names with year suffixes (e.g., "Bełchatów (2023)").
+    Handles table names with year suffixes in two formats:
+    - "Bełchatów (2023)" - format with parentheses
+    - "Bełchatów 2023" - format when split_by_year is enabled
     
     Args:
         table_name: Name of the table/sheet (may include year suffix)
@@ -102,8 +104,21 @@ def table_matches_plant(table_name: str, plant_name: str) -> bool:
     Returns:
         True if the table corresponds to the power plant, False otherwise
     """
-    # Remove year suffix if present (e.g., "Bełchatów (2023)" -> "Bełchatów")
-    base_table_name = table_name.split(' (')[0] if ' (' in table_name else table_name
+    # Remove year suffix if present
+    # Handle format with parentheses: "Bełchatów (2023)" -> "Bełchatów"
+    if ' (' in table_name:
+        base_table_name = table_name.split(' (')[0]
+    # Handle format with space and year: "Bełchatów 2023" -> "Bełchatów"
+    # Check if the last part after space is a 4-digit year
+    elif ' ' in table_name:
+        parts = table_name.rsplit(' ', 1)
+        if len(parts) == 2 and parts[1].isdigit() and len(parts[1]) == 4:
+            base_table_name = parts[0]
+        else:
+            base_table_name = table_name
+    else:
+        base_table_name = table_name
+    
     return base_table_name == plant_name
 
 def extract_year_expr() -> pl.Expr:
