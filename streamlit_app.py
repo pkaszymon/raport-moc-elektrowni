@@ -89,6 +89,23 @@ def sanitize_filename(name: str, max_length: int = None) -> str:
     
     return sanitized
 
+def table_matches_plant(table_name: str, plant_name: str) -> bool:
+    """
+    Check if a table name corresponds to the given power plant.
+    
+    Handles table names with year suffixes (e.g., "Bełchatów (2023)").
+    
+    Args:
+        table_name: Name of the table/sheet (may include year suffix)
+        plant_name: Name of the power plant
+    
+    Returns:
+        True if the table corresponds to the power plant, False otherwise
+    """
+    # Remove year suffix if present (e.g., "Bełchatów (2023)" -> "Bełchatów")
+    base_table_name = table_name.split(' (')[0] if ' (' in table_name else table_name
+    return base_table_name == plant_name
+
 def extract_year_expr() -> pl.Expr:
     """
     Create a Polars expression to extract the year from a 'dtime' column.
@@ -742,6 +759,12 @@ def main():
                 ])
             )
             
+            # Convert to dictionary for easier access (do this once, outside button)
+            plant_resource_dict = {
+                row["power_plant"]: row["resources"] 
+                for row in dynamic_plant_to_resources.to_dicts()
+            }
+            
             # Filter selection for Excel export
             st.write("**🔍 Filtruj dane do eksportu:**")
             
@@ -779,13 +802,6 @@ def main():
                 with st.spinner("Tworzę plik Excel ze wszystkimi tabelami..."):
                     import xlsxwriter
                     import numpy as np
-                    
-                    # Helper function to check if a table matches a power plant
-                    def table_matches_plant(table_name: str, plant_name: str) -> bool:
-                        """Check if table name corresponds to the given power plant."""
-                        # Remove year suffix if present (e.g., "Bełchatów (2023)" -> "Bełchatów")
-                        base_table_name = table_name.split(' (')[0] if ' (' in table_name else table_name
-                        return base_table_name == plant_name
 
                     output_all = io.BytesIO()
                     workbook = xlsxwriter.Workbook(output_all, {'in_memory': True, 'nan_inf_to_errors': True})
@@ -803,12 +819,6 @@ def main():
                                 tables_to_export[table_name] = table_info
                     elif export_filter_type == "Według kodów jednostek":
                         # Filter by selected resource codes using dynamic mapping
-                        # Convert dynamic mapping to dictionary format
-                        plant_resource_dict = {
-                            row["power_plant"]: row["resources"] 
-                            for row in dynamic_plant_to_resources.to_dicts()
-                        }
-                        
                         # Find which power plants have the selected resource codes
                         plants_with_selected_resources = set()
                         for plant, resources in plant_resource_dict.items():
