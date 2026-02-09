@@ -25,15 +25,10 @@ from pse_api import (
     fetch_pse_data_with_auto_split,
     calculate_time_coverage,
     calculate_expected_intervals,
-    detect_new_labels,
     PSE_API_BASE_URL,
     MAX_RETRIES,
     MAX_EXPECTED_ENTRIES,
-    POWER_PLANT_TO_RESOURCES,
-    ALL_RESOURCE_CODES,
     FILTER_TYPE_ALL,
-    FILTER_TYPE_BY_POWER_PLANT,
-    FILTER_TYPE_BY_RESOURCE_CODE,
     AGGREGATION_15_MIN,
     AGGREGATION_HOURLY,
     AGGREGATION_DAILY
@@ -56,7 +51,6 @@ SESSION_STATE_DEFAULTS = {
     "min_dtime": None,
     "max_dtime": None,
     "query_params": None,
-    "new_labels_warning": None,
     "current_progress": 0.0,
     "current_period": 0,
     "total_periods": 0
@@ -94,6 +88,45 @@ def sanitize_filename(name: str, max_length: int = None) -> str:
         sanitized = sanitized[:max_length]
     
     return sanitized
+
+def clear_excel_export():
+    """
+    Callback to clear the Excel export from session state when filters change.
+    """
+    if 'excel_export' in st.session_state:
+        del st.session_state['excel_export']
+
+def table_matches_plant(table_name: str, plant_name: str) -> bool:
+    """
+    Check if a table name corresponds to the given power plant.
+    
+    Handles table names with year suffixes in two formats:
+    - "Bełchatów (2023)" - format with parentheses
+    - "Bełchatów 2023" - format when split_by_year is enabled
+    
+    Args:
+        table_name: Name of the table/sheet (may include year suffix)
+        plant_name: Name of the power plant
+    
+    Returns:
+        True if the table corresponds to the power plant, False otherwise
+    """
+    # Remove year suffix if present
+    # Handle format with parentheses: "Bełchatów (2023)" -> "Bełchatów"
+    if ' (' in table_name:
+        base_table_name = table_name.split(' (')[0]
+    # Handle format with space and year: "Bełchatów 2023" -> "Bełchatów"
+    # Check if the last part after space is a 4-digit year
+    elif ' ' in table_name:
+        parts = table_name.rsplit(' ', 1)
+        if len(parts) == 2 and parts[1].isdigit() and len(parts[1]) == 4:
+            base_table_name = parts[0]
+        else:
+            base_table_name = table_name
+    else:
+        base_table_name = table_name
+    
+    return base_table_name == plant_name
 
 def extract_year_expr() -> pl.Expr:
     """
@@ -226,47 +259,7 @@ def main():
             help="Do której daty pobrać dane"
         )
     
-    # Filter selection - mutually exclusive
-    st.subheader("🔍 Filtrowanie danych")
-    
-    filter_type = st.radio(
-        "Wybierz sposób filtrowania",
-        options=[FILTER_TYPE_ALL, FILTER_TYPE_BY_POWER_PLANT, FILTER_TYPE_BY_RESOURCE_CODE],
-        index=0,
-        horizontal=True,
-        help="Wybierz sposób filtrowania danych - możesz pobrać wszystko, wybrać konkretne elektrownie lub jednostki wytwórcze"
-    )
-    
-    selected_power_plants = []
-    selected_resources = []
-    
-    if filter_type == FILTER_TYPE_BY_POWER_PLANT:
-        # Power plant filter
-        power_plants = [
-            "Siersza", "Rybnik", "EC Włocławek", "Porąbka Żar", "EC Stalowa Wola", 
-            "Kozienice 1", "Zielona Góra", "Gryfino", "Chorzów", "Łagisza", 
-            "Dolna Odra", "Pątnów 2", "EC Żerań 2", "Połaniec 2-Pasywna", "Turów", 
-            "Karolin 2", "EC Wrotków", "Jaworzno 3", "Jaworzno 2 JWCD", "Ostrołęka B", 
-            "EC Rzeszów", "Połaniec", "EC Siekierki", "EC Łódź-4", "Płock", 
-            "Skawina", "Żarnowiec", "Łaziska 3", "Opole", "EC Czechnica-2", 
-            "Katowice", "Wrocław", "Kraków Łęg", "Bełchatów", "Kozienice 2"
-        ]
-        
-        selected_power_plants = st.multiselect(
-            "Elektrownie",
-            options=sorted(power_plants),
-            default=[],
-            help="Wybierz elektrownie, dla których chcesz pobrać dane"
-        )
-    
-    elif filter_type == FILTER_TYPE_BY_RESOURCE_CODE:
-        # Resource code filter - use imported constant from pse_api module
-        selected_resources = st.multiselect(
-            "Kody jednostek wytwórczych",
-            options=ALL_RESOURCE_CODES,
-            default=[],
-            help="Wybierz konkretne jednostki wytwórcze"
-        )
+    # All data will be fetched without filtering (no need for filter variables)
     
     # Validate date range
     if start_date > end_date:
@@ -349,9 +342,9 @@ def main():
         expected_intervals = calculate_expected_intervals(
             start_date,
             end_date,
-            filter_type,
-            selected_power_plants,
-            selected_resources
+            FILTER_TYPE_ALL,
+            None,
+            None
         )
         st.metric(
             "⏱️ Oczekiwane pomiary",
@@ -368,10 +361,6 @@ def main():
         f"**Wybrany okres:** {start_date.isoformat()} → {end_date.isoformat()} "
         f"({(end_date - start_date).days + 1} dni)"
     )
-    
-    # Display new labels warning if it exists in session state
-    if st.session_state.new_labels_warning:
-        st.warning(st.session_state.new_labels_warning)
 
     # ========================================================================
     # Data Fetching Controls
@@ -380,10 +369,8 @@ def main():
     col_fetch, col_info = st.columns([2, 3])
 
     with col_fetch:
-        # Check if query parameters have changed
-        selected_resources_str = ",".join(sorted(selected_resources)) if selected_resources else ""
-        selected_power_plants_str = ",".join(sorted(selected_power_plants)) if selected_power_plants else ""
-        current_query = f"{start_date.isoformat()}_{end_date.isoformat()}_{page_size}_{filter_type}_{selected_resources_str}_{selected_power_plants_str}"
+        # Check if query parameters have changed (only date range and page size)
+        current_query = f"{start_date.isoformat()}_{end_date.isoformat()}_{page_size}"
         if st.session_state.query_params != current_query:
             # Reset if query changed
             for key, default_value in SESSION_STATE_DEFAULTS.items():
@@ -402,13 +389,13 @@ def main():
             status_placeholder = st.empty()
             progress_bar = st.progress(0)
             
-            # Calculate expected entries to inform the user
+            # Calculate expected entries to inform the user (always all data)
             expected_entries = calculate_expected_intervals(
                 start_date,
                 end_date,
-                filter_type,
-                selected_power_plants,
-                selected_resources
+                FILTER_TYPE_ALL,
+                None,
+                None
             )
             
             status_placeholder.info(
@@ -432,13 +419,13 @@ def main():
                 )
             
             try:
-                # Fetch data using the auto-split dispatcher
+                # Fetch all data (no filtering)
                 all_records = fetch_pse_data_with_auto_split(
                     start_date=start_date,
                     end_date=end_date,
-                    filter_type=filter_type,
-                    selected_power_plants=selected_power_plants,
-                    selected_resources=selected_resources,
+                    filter_type=FILTER_TYPE_ALL,
+                    selected_power_plants=None,
+                    selected_resources=None,
                     page_size=page_size,
                     progress_callback=update_progress
                 )
@@ -468,38 +455,6 @@ def main():
                     status_placeholder.success(
                         f"✓ Ukończono! Pobrano {len(all_records):,} rekordów"
                     )
-                
-                # Check for new labels when fetching all data without filters
-                if filter_type == FILTER_TYPE_ALL and st.session_state.all_data:
-                    detection_result = detect_new_labels(st.session_state.all_data)
-                    
-                    if detection_result['has_new_labels']:
-                        # Build alert message
-                        alert_message = "⚠️ **Wykryto nowe etykiety w danych z API PSE!**\n\n"
-                        alert_message += "Znaleziono następujące nowe etykiety, które nie są obecne w filtrach aplikacji:\n\n"
-                        
-                        if detection_result['new_power_plants']:
-                            alert_message += f"**Nowe elektrownie ({len(detection_result['new_power_plants'])}):**\n"
-                            for plant in detection_result['new_power_plants']:
-                                alert_message += f"- {plant}\n"
-                            alert_message += "\n"
-                        
-                        if detection_result['new_resource_codes']:
-                            alert_message += f"**Nowe kody jednostek ({len(detection_result['new_resource_codes'])}):**\n"
-                            for code in detection_result['new_resource_codes']:
-                                alert_message += f"- {code}\n"
-                            alert_message += "\n"
-                        
-                        if detection_result['new_mapping']:
-                            alert_message += "**Mapowanie elektrowni do nowych kodów jednostek:**\n"
-                            for plant, codes in detection_result['new_mapping'].items():
-                                alert_message += f"- **{plant}**: {', '.join(codes)}\n"
-                            alert_message += "\n"
-                        
-                        alert_message += "📧 **Skontaktuj się z administratorem aplikacji** w celu zaktualizowania filtrów w kodzie aplikacji."
-                        
-                        # Store the warning in session state so it persists after rerun
-                        st.session_state.new_labels_warning = alert_message
                 
             except Exception as e:
                 logger.error(f"Error during data fetch: {e}", exc_info=True)
@@ -625,11 +580,17 @@ def main():
         else:
             split_by_year = False
         
-        # Get unique power plants
+        # Get unique power plants and resource codes
         unique_power_plants = df.select(pl.col("power_plant").unique()).to_series().to_list()
         unique_power_plants = sorted([pp for pp in unique_power_plants if pp is not None])
         
-        st.info(f"Znaleziono **{len(unique_power_plants)}** elektrowni")
+        unique_resource_codes = df.select(pl.col("resource_code").unique()).to_series().to_list()
+        unique_resource_codes = sorted([rc for rc in unique_resource_codes if rc is not None])
+        
+        st.info(
+            f"📊 Pobrane dane zawierają **{len(unique_power_plants)} elektrowni** "
+            f"i **{len(unique_resource_codes)} jednostek wytwórczych**"
+        )
         
         with st.spinner("Przygotowuję tabele dla każdej elektrowni..."):
             power_plant_pivot_tables = {}
@@ -809,48 +770,151 @@ def main():
                                     )
 
 
-            st.subheader("📦 Pobierz wszystkie arkusze")
+            st.subheader("📦 Pobierz jako jeden plik Excel")
+            
+            # Build dynamic mapping from downloaded data (optimized using group_by)
+            dynamic_plant_to_resources = (
+                df.group_by("power_plant")
+                .agg(pl.col("resource_code").unique().alias("resources"))
+                .with_columns([
+                    pl.col("resources").list.sort()
+                ])
+            )
+            
+            # Convert to dictionary for easier access (do this once, outside button)
+            plant_resource_dict = {
+                row["power_plant"]: row["resources"] 
+                for row in dynamic_plant_to_resources.to_dicts()
+            }
+            
+            # Filter selection for Excel export
+            st.write("**🔍 Filtruj dane do eksportu:**")
+            
+            col_filter1, col_filter2 = st.columns(2)
+            
+            with col_filter1:
+                export_filter_type = st.radio(
+                    "Sposób filtrowania",
+                    options=["Wszystkie dane", "Według elektrowni", "Według kodów jednostek"],
+                    index=0,
+                    horizontal=False,
+                    help="Wybierz, które dane chcesz wyeksportować do pliku Excel",
+                    key="export_filter_type",
+                    on_change=clear_excel_export
+                )
+            
+            with col_filter2:
+                if export_filter_type == "Według elektrowni":
+                    selected_export_plants = st.multiselect(
+                        "Elektrownie do eksportu",
+                        options=unique_power_plants,
+                        default=unique_power_plants,
+                        help="Wybierz elektrownie, które chcesz uwzględnić w pliku Excel",
+                        key="selected_export_plants",
+                        on_change=clear_excel_export
+                    )
+                elif export_filter_type == "Według kodów jednostek":
+                    selected_export_resources = st.multiselect(
+                        "Kody jednostek do eksportu",
+                        options=unique_resource_codes,
+                        default=unique_resource_codes,
+                        help="Wybierz kody jednostek, które chcesz uwzględnić w pliku Excel",
+                        key="selected_export_resources",
+                        on_change=clear_excel_export
+                    )
 
-            if st.button("📦 Przygotuj wszystkie tabele jako jeden plik Excel", help="Utwórz plik Excel ze wszystkimi tabelami na osobnych arkuszach"):
+            if st.button("📦 Przygotuj plik Excel z wybranymi danymi", help="Utwórz plik Excel ze wszystkimi tabelami na osobnych arkuszach"):
                 with st.spinner("Tworzę plik Excel ze wszystkimi tabelami..."):
                     import xlsxwriter
                     import numpy as np
 
-                    output_all = io.BytesIO()
-                    workbook = xlsxwriter.Workbook(output_all, {'in_memory': True, 'nan_inf_to_errors': True})
+                    # Determine which tables to include based on filter
+                    tables_to_export = {}
+                    
+                    if export_filter_type == "Wszystkie dane":
+                        # Export all tables with all columns
+                        tables_to_export = power_plant_pivot_tables
+                    elif export_filter_type == "Według elektrowni":
+                        # Filter by selected power plants - include all resource codes for those plants
+                        for table_name, table_info in power_plant_pivot_tables.items():
+                            if any(table_matches_plant(table_name, plant) for plant in selected_export_plants):
+                                tables_to_export[table_name] = table_info
+                    elif export_filter_type == "Według kodów jednostek":
+                        # Filter by selected resource codes - only include selected resource code columns
+                        # Find which power plants have the selected resource codes
+                        plants_with_selected_resources = set()
+                        for plant, resources in plant_resource_dict.items():
+                            if any(rc in selected_export_resources for rc in resources):
+                                plants_with_selected_resources.add(plant)
+                        
+                        # Include tables for those power plants, but filter columns to only selected resource codes
+                        for table_name, table_info in power_plant_pivot_tables.items():
+                            if any(table_matches_plant(table_name, plant) for plant in plants_with_selected_resources):
+                                # Filter the dataframe columns to only include selected resource codes
+                                pivot_df = table_info['data']
+                                all_columns = pivot_df.columns
+                                
+                                # Keep date/period columns (if they exist) and only selected resource codes
+                                columns_to_keep = []
+                                for col in ["date", "period"]:
+                                    if col in all_columns:
+                                        columns_to_keep.append(col)
+                                
+                                # Add selected resource code columns
+                                for col in all_columns:
+                                    if col in selected_export_resources:
+                                        columns_to_keep.append(col)
+                                
+                                # Only include this table if it has at least one selected resource code
+                                # (more than just date and period columns)
+                                resource_code_count = len([c for c in columns_to_keep if c not in ["date", "period"]])
+                                if resource_code_count > 0:
+                                    filtered_df = pivot_df.select(columns_to_keep)
+                                    tables_to_export[table_name] = {
+                                        'data': filtered_df,
+                                        'aggregation': table_info['aggregation'],
+                                        'year': table_info.get('year')
+                                    }
+                    
+                    # Check if there are any tables to export
+                    if not tables_to_export:
+                        st.warning("⚠️ Brak tabel spełniających kryteria filtrowania. Zmień ustawienia filtrów i spróbuj ponownie.")
+                    else:
+                        output_all = io.BytesIO()
+                        workbook = xlsxwriter.Workbook(output_all, {'in_memory': True, 'nan_inf_to_errors': True})
+                        
+                        for table_name, table_info in tables_to_export.items():
+                            pivot_df = table_info['data']
+                            # Sanitize sheet name (Excel has 31 char limit and some char restrictions)
+                            sheet_name = sanitize_filename(table_name, max_length=31)
 
-                    for table_name, table_info in power_plant_pivot_tables.items():
-                        pivot_df = table_info['data']
-                        # Sanitize sheet name (Excel has 31 char limit and some char restrictions)
-                        sheet_name = sanitize_filename(table_name, max_length=31)
+                            # Convert to pandas for xlsxwriter compatibility
+                            pandas_df = pivot_df.to_pandas()
 
-                        # Convert to pandas for xlsxwriter compatibility
-                        pandas_df = pivot_df.to_pandas()
+                            # Write to worksheet
+                            worksheet = workbook.add_worksheet(sheet_name)
 
-                        # Write to worksheet
-                        worksheet = workbook.add_worksheet(sheet_name)
+                            # Write headers
+                            for col_num, col_name in enumerate(pandas_df.columns):
+                                worksheet.write(0, col_num, col_name)
 
-                        # Write headers
-                        for col_num, col_name in enumerate(pandas_df.columns):
-                            worksheet.write(0, col_num, col_name)
-
-                        # Write data, handling NaN/Inf values
-                        for row_num, row_data in enumerate(pandas_df.values, start=1):
-                            for col_num, value in enumerate(row_data):
-                                # Handle NaN and Inf values
-                                if isinstance(value, (float, np.floating)):
-                                    if np.isnan(value) or np.isinf(value):
-                                        worksheet.write(row_num, col_num, None)  # Write empty cell
+                            # Write data, handling NaN/Inf values
+                            for row_num, row_data in enumerate(pandas_df.values, start=1):
+                                for col_num, value in enumerate(row_data):
+                                    # Handle NaN and Inf values
+                                    if isinstance(value, (float, np.floating)):
+                                        if np.isnan(value) or np.isinf(value):
+                                            worksheet.write(row_num, col_num, None)  # Write empty cell
+                                        else:
+                                            worksheet.write(row_num, col_num, value)
                                     else:
                                         worksheet.write(row_num, col_num, value)
-                                else:
-                                    worksheet.write(row_num, col_num, value)
 
-                workbook.close()
-                output_all.seek(0)
-                st.session_state.excel_export = output_all.getvalue()
-                file_size_mb = len(st.session_state.excel_export) / (1024 * 1024)
-                st.success(f"✓ Przygotowano plik Excel z {len(power_plant_pivot_tables)} arkuszami ({file_size_mb:.2f} MB)")
+                        workbook.close()
+                        output_all.seek(0)
+                        st.session_state.excel_export = output_all.getvalue()
+                        file_size_mb = len(st.session_state.excel_export) / (1024 * 1024)
+                        st.success(f"✓ Przygotowano plik Excel z {len(tables_to_export)} arkuszami ({file_size_mb:.2f} MB)")
 
             if 'excel_export' in st.session_state:
                 st.download_button(
