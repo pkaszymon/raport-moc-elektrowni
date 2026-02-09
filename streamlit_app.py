@@ -832,14 +832,21 @@ def main():
                                 pivot_df = table_info['data']
                                 all_columns = pivot_df.columns
                                 
-                                # Keep date/period columns and only selected resource codes
-                                columns_to_keep = ["date", "period"] + [
-                                    col for col in all_columns 
-                                    if col in selected_export_resources and col not in ["date", "period"]
-                                ]
+                                # Keep date/period columns (if they exist) and only selected resource codes
+                                columns_to_keep = []
+                                for col in ["date", "period"]:
+                                    if col in all_columns:
+                                        columns_to_keep.append(col)
+                                
+                                # Add selected resource code columns
+                                for col in all_columns:
+                                    if col in selected_export_resources:
+                                        columns_to_keep.append(col)
                                 
                                 # Only include this table if it has at least one selected resource code
-                                if len(columns_to_keep) > 2:  # More than just date and period
+                                # (more than just date and period columns)
+                                resource_code_count = len([c for c in columns_to_keep if c not in ["date", "period"]])
+                                if resource_code_count > 0:
                                     filtered_df = pivot_df.select(columns_to_keep)
                                     tables_to_export[table_name] = {
                                         'data': filtered_df,
