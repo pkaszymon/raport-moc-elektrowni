@@ -29,11 +29,7 @@ from pse_api import (
     PSE_API_BASE_URL,
     MAX_RETRIES,
     MAX_EXPECTED_ENTRIES,
-    POWER_PLANT_TO_RESOURCES,
-    ALL_RESOURCE_CODES,
     FILTER_TYPE_ALL,
-    FILTER_TYPE_BY_POWER_PLANT,
-    FILTER_TYPE_BY_RESOURCE_CODE,
     AGGREGATION_15_MIN,
     AGGREGATION_HOURLY,
     AGGREGATION_DAILY
@@ -226,47 +222,10 @@ def main():
             help="Do której daty pobrać dane"
         )
     
-    # Filter selection - mutually exclusive
-    st.subheader("🔍 Filtrowanie danych")
-    
-    filter_type = st.radio(
-        "Wybierz sposób filtrowania",
-        options=[FILTER_TYPE_ALL, FILTER_TYPE_BY_POWER_PLANT, FILTER_TYPE_BY_RESOURCE_CODE],
-        index=0,
-        horizontal=True,
-        help="Wybierz sposób filtrowania danych - możesz pobrać wszystko, wybrać konkretne elektrownie lub jednostki wytwórcze"
-    )
-    
+    # All data will be fetched without filtering
+    filter_type = FILTER_TYPE_ALL
     selected_power_plants = []
     selected_resources = []
-    
-    if filter_type == FILTER_TYPE_BY_POWER_PLANT:
-        # Power plant filter
-        power_plants = [
-            "Siersza", "Rybnik", "EC Włocławek", "Porąbka Żar", "EC Stalowa Wola", 
-            "Kozienice 1", "Zielona Góra", "Gryfino", "Chorzów", "Łagisza", 
-            "Dolna Odra", "Pątnów 2", "EC Żerań 2", "Połaniec 2-Pasywna", "Turów", 
-            "Karolin 2", "EC Wrotków", "Jaworzno 3", "Jaworzno 2 JWCD", "Ostrołęka B", 
-            "EC Rzeszów", "Połaniec", "EC Siekierki", "EC Łódź-4", "Płock", 
-            "Skawina", "Żarnowiec", "Łaziska 3", "Opole", "EC Czechnica-2", 
-            "Katowice", "Wrocław", "Kraków Łęg", "Bełchatów", "Kozienice 2"
-        ]
-        
-        selected_power_plants = st.multiselect(
-            "Elektrownie",
-            options=sorted(power_plants),
-            default=[],
-            help="Wybierz elektrownie, dla których chcesz pobrać dane"
-        )
-    
-    elif filter_type == FILTER_TYPE_BY_RESOURCE_CODE:
-        # Resource code filter - use imported constant from pse_api module
-        selected_resources = st.multiselect(
-            "Kody jednostek wytwórczych",
-            options=ALL_RESOURCE_CODES,
-            default=[],
-            help="Wybierz konkretne jednostki wytwórcze"
-        )
     
     # Validate date range
     if start_date > end_date:
@@ -349,9 +308,9 @@ def main():
         expected_intervals = calculate_expected_intervals(
             start_date,
             end_date,
-            filter_type,
-            selected_power_plants,
-            selected_resources
+            FILTER_TYPE_ALL,
+            None,
+            None
         )
         st.metric(
             "⏱️ Oczekiwane pomiary",
@@ -380,10 +339,8 @@ def main():
     col_fetch, col_info = st.columns([2, 3])
 
     with col_fetch:
-        # Check if query parameters have changed
-        selected_resources_str = ",".join(sorted(selected_resources)) if selected_resources else ""
-        selected_power_plants_str = ",".join(sorted(selected_power_plants)) if selected_power_plants else ""
-        current_query = f"{start_date.isoformat()}_{end_date.isoformat()}_{page_size}_{filter_type}_{selected_resources_str}_{selected_power_plants_str}"
+        # Check if query parameters have changed (only date range and page size)
+        current_query = f"{start_date.isoformat()}_{end_date.isoformat()}_{page_size}"
         if st.session_state.query_params != current_query:
             # Reset if query changed
             for key, default_value in SESSION_STATE_DEFAULTS.items():
@@ -402,13 +359,13 @@ def main():
             status_placeholder = st.empty()
             progress_bar = st.progress(0)
             
-            # Calculate expected entries to inform the user
+            # Calculate expected entries to inform the user (always all data)
             expected_entries = calculate_expected_intervals(
                 start_date,
                 end_date,
-                filter_type,
-                selected_power_plants,
-                selected_resources
+                FILTER_TYPE_ALL,
+                None,
+                None
             )
             
             status_placeholder.info(
@@ -432,13 +389,13 @@ def main():
                 )
             
             try:
-                # Fetch data using the auto-split dispatcher
+                # Fetch all data (no filtering)
                 all_records = fetch_pse_data_with_auto_split(
                     start_date=start_date,
                     end_date=end_date,
-                    filter_type=filter_type,
-                    selected_power_plants=selected_power_plants,
-                    selected_resources=selected_resources,
+                    filter_type=FILTER_TYPE_ALL,
+                    selected_power_plants=None,
+                    selected_resources=None,
                     page_size=page_size,
                     progress_callback=update_progress
                 )
@@ -469,8 +426,8 @@ def main():
                         f"✓ Ukończono! Pobrano {len(all_records):,} rekordów"
                     )
                 
-                # Check for new labels when fetching all data without filters
-                if filter_type == FILTER_TYPE_ALL and st.session_state.all_data:
+                # Check for new labels in the downloaded data
+                if st.session_state.all_data:
                     detection_result = detect_new_labels(st.session_state.all_data)
                     
                     if detection_result['has_new_labels']:
@@ -625,11 +582,17 @@ def main():
         else:
             split_by_year = False
         
-        # Get unique power plants
+        # Get unique power plants and resource codes
         unique_power_plants = df.select(pl.col("power_plant").unique()).to_series().to_list()
         unique_power_plants = sorted([pp for pp in unique_power_plants if pp is not None])
         
-        st.info(f"Znaleziono **{len(unique_power_plants)}** elektrowni")
+        unique_resource_codes = df.select(pl.col("resource_code").unique()).to_series().to_list()
+        unique_resource_codes = sorted([rc for rc in unique_resource_codes if rc is not None])
+        
+        st.info(
+            f"📊 Pobrane dane zawierają **{len(unique_power_plants)} elektrowni** "
+            f"i **{len(unique_resource_codes)} jednostek wytwórczych**"
+        )
         
         with st.spinner("Przygotowuję tabele dla każdej elektrowni..."):
             power_plant_pivot_tables = {}
