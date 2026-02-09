@@ -748,7 +748,7 @@ def main():
                                     )
 
 
-            st.subheader("📦 Pobierz wszystkie arkusze")
+            st.subheader("📦 Pobierz jako jeden plik Excel")
             
             # Build dynamic mapping from downloaded data (optimized using group_by)
             dynamic_plant_to_resources = (
@@ -798,7 +798,7 @@ def main():
                         key="selected_export_resources"
                     )
 
-            if st.button("📦 Przygotuj wszystkie tabele jako jeden plik Excel", help="Utwórz plik Excel ze wszystkimi tabelami na osobnych arkuszach"):
+            if st.button("📦 Przygotuj plik Excel z wybranymi danymi", help="Utwórz plik Excel ze wszystkimi tabelami na osobnych arkuszach"):
                 with st.spinner("Tworzę plik Excel ze wszystkimi tabelami..."):
                     import xlsxwriter
                     import numpy as np
