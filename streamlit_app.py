@@ -733,11 +733,14 @@ def main():
 
             st.subheader("📦 Pobierz wszystkie arkusze")
             
-            # Build dynamic mapping from downloaded data
-            dynamic_plant_to_resources = {}
-            for power_plant in unique_power_plants:
-                plant_resources = df.filter(pl.col("power_plant") == power_plant).select(pl.col("resource_code").unique()).to_series().to_list()
-                dynamic_plant_to_resources[power_plant] = sorted([rc for rc in plant_resources if rc is not None])
+            # Build dynamic mapping from downloaded data (optimized using group_by)
+            dynamic_plant_to_resources = (
+                df.group_by("power_plant")
+                .agg(pl.col("resource_code").unique().alias("resources"))
+                .with_columns([
+                    pl.col("resources").list.sort()
+                ])
+            )
             
             # Filter selection for Excel export
             st.write("**🔍 Filtruj dane do eksportu:**")
@@ -776,6 +779,13 @@ def main():
                 with st.spinner("Tworzę plik Excel ze wszystkimi tabelami..."):
                     import xlsxwriter
                     import numpy as np
+                    
+                    # Helper function to check if a table matches a power plant
+                    def table_matches_plant(table_name: str, plant_name: str) -> bool:
+                        """Check if table name corresponds to the given power plant."""
+                        # Remove year suffix if present (e.g., "Bełchatów (2023)" -> "Bełchatów")
+                        base_table_name = table_name.split(' (')[0] if ' (' in table_name else table_name
+                        return base_table_name == plant_name
 
                     output_all = io.BytesIO()
                     workbook = xlsxwriter.Workbook(output_all, {'in_memory': True, 'nan_inf_to_errors': True})
@@ -789,22 +799,25 @@ def main():
                     elif export_filter_type == "Według elektrowni":
                         # Filter by selected power plants
                         for table_name, table_info in power_plant_pivot_tables.items():
-                            # Extract power plant name from table name (before year suffix if present)
-                            base_plant_name = table_name.split(' (')[0] if ' (' in table_name else table_name
-                            # Check if this power plant is in the selected list
-                            if any(plant in table_name or table_name.startswith(plant) for plant in selected_export_plants):
+                            if any(table_matches_plant(table_name, plant) for plant in selected_export_plants):
                                 tables_to_export[table_name] = table_info
                     elif export_filter_type == "Według kodów jednostek":
                         # Filter by selected resource codes using dynamic mapping
+                        # Convert dynamic mapping to dictionary format
+                        plant_resource_dict = {
+                            row["power_plant"]: row["resources"] 
+                            for row in dynamic_plant_to_resources.to_dicts()
+                        }
+                        
                         # Find which power plants have the selected resource codes
                         plants_with_selected_resources = set()
-                        for plant, resources in dynamic_plant_to_resources.items():
+                        for plant, resources in plant_resource_dict.items():
                             if any(rc in selected_export_resources for rc in resources):
                                 plants_with_selected_resources.add(plant)
                         
                         # Include tables for those power plants
                         for table_name, table_info in power_plant_pivot_tables.items():
-                            if any(plant in table_name or table_name.startswith(plant) for plant in plants_with_selected_resources):
+                            if any(table_matches_plant(table_name, plant) for plant in plants_with_selected_resources):
                                 tables_to_export[table_name] = table_info
                     
                     for table_name, table_info in tables_to_export.items():
