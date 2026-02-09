@@ -222,10 +222,7 @@ def main():
             help="Do której daty pobrać dane"
         )
     
-    # All data will be fetched without filtering
-    filter_type = FILTER_TYPE_ALL
-    selected_power_plants = []
-    selected_resources = []
+    # All data will be fetched without filtering (no need for filter variables)
     
     # Validate date range
     if start_date > end_date:
